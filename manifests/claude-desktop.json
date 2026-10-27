@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "ledgerguard": {
+      "command": "node",
+      "args": [
+        "/Users/modewebhostdailymedia/mode-ops/ledgerguard/dist/bin/run-stdio.js"
+      ],
+      "env": {
+        "NODE_ENV": "production"
+      }
+    }
+  }
+}

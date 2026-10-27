@@ -1,0 +1,17 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "LedgerGuard Financial Auditor",
+  "name_for_model": "ledgerguard",
+  "description_for_human": "Autonomous Cross-Platform Financial Auditor & Reconciliation Engine.",
+  "description_for_model": "Audit recognized revenue from billing platforms (Chargebee) against Stripe net deposits and bank feeds (Plaid). Flag any discrepancy over $250 with matching processor fees, inspect transactional anomalies, and draft dual-entry journal adjustments for user approval before syncing with QuickBooks/NetSuite.",
+  "auth": {
+    "type": "none"
+  },
+  "api": {
+    "type": "openapi",
+    "url": "http://localhost:3333/docs/json"
+  },
+  "logo_url": "https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=128&q=80",
+  "contact_email": "support@ledgerguard.ai",
+  "legal_info_url": "http://localhost:3333/legal"
+}

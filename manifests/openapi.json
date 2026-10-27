@@ -1,0 +1,311 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LedgerGuard API & AI Plugin",
+    "description": "Autonomous Cross-Platform Financial Auditor & Reconciliation Engine for Claude, ChatGPT, and Standalone Finance Ops.",
+    "version": "1.0.0"
+  },
+  "components": {
+    "schemas": {}
+  },
+  "paths": {
+    "/": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/.well-known/ai-plugin.json": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/audit/variance": {
+      "get": {
+        "description": "Audit recognized revenue against Stripe net deposits and bank statements for a period",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "default": "2026-09"
+            },
+            "in": "query",
+            "name": "period",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "number",
+              "default": 250
+            },
+            "in": "query",
+            "name": "minDiscrepancy",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "boolean",
+              "default": true
+            },
+            "in": "query",
+            "name": "matchProcessorFees",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/audit/anomalies": {
+      "get": {
+        "description": "Retrieve detailed transactional anomalies filtered by severity or period",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "default": "2026-09"
+            },
+            "in": "query",
+            "name": "period",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "LOW",
+                "MEDIUM",
+                "HIGH",
+                "CRITICAL"
+              ]
+            },
+            "in": "query",
+            "name": "severity",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/adjustments": {
+      "get": {
+        "description": "List all dual-entry journal adjustments",
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "description": "Check service health and engine status",
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/adjustments/draft": {
+      "post": {
+        "description": "Draft a new dual-entry balancing journal adjustment for an anomaly or manual correction",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "anomalyId": {
+                    "type": "string"
+                  },
+                  "reference": {
+                    "type": "string"
+                  },
+                  "memo": {
+                    "type": "string"
+                  },
+                  "lines": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "accountCode": {
+                          "type": "string"
+                        },
+                        "accountName": {
+                          "type": "string"
+                        },
+                        "debit": {
+                          "type": "number"
+                        },
+                        "credit": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "accountCode",
+                        "accountName",
+                        "debit",
+                        "credit"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/adjustments/approve": {
+      "post": {
+        "description": "Approve a drafted dual-entry journal entry",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "adjustmentId"
+                ],
+                "properties": {
+                  "adjustmentId": {
+                    "type": "string"
+                  },
+                  "approvedBy": {
+                    "type": "string",
+                    "default": "Finance Lead"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/adjustments/commit": {
+      "post": {
+        "description": "Commit an approved journal adjustment to connected ERP",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "adjustmentId"
+                ],
+                "properties": {
+                  "adjustmentId": {
+                    "type": "string"
+                  },
+                  "targetERP": {
+                    "type": "string",
+                    "enum": [
+                      "QUICKBOOKS",
+                      "NETSUITE",
+                      "XERO"
+                    ],
+                    "default": "QUICKBOOKS"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/audit-trail": {
+      "get": {
+        "description": "Get the cryptographic GAAP audit trail and verify chain integrity",
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/api/v1/cron/trigger": {
+      "post": {
+        "description": "Trigger overnight reconciliation background job and Slack alerts",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "period": {
+                    "type": "string",
+                    "default": "2026-09"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/sse": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
+    "/messages": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3333",
+      "description": "Local Standalone Server"
+    }
+  ]
+}

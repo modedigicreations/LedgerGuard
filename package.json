@@ -1,0 +1,55 @@
+{
+  "name": "ledgerguard",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "LedgerGuard — Autonomous Cross-Platform Financial Auditor & Reconciliation Engine (MCP Server & AI Plugin for Claude, ChatGPT, and Standalone)",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "ledgerguard": "./dist/bin/run-stdio.js",
+    "ledgerguard-server": "./dist/bin/run-http.js",
+    "ledgerguard-cron": "./dist/bin/run-cron.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev:stdio": "tsx src/bin/run-stdio.ts",
+    "dev:http": "tsx src/bin/run-http.ts",
+    "dev:cron": "tsx src/bin/run-cron.ts",
+    "start": "node dist/bin/run-stdio.js",
+    "start:http": "node dist/bin/run-http.js",
+    "start:cron": "node dist/bin/run-cron.js",
+    "generate:manifests": "tsx src/scripts/generate-manifests.ts",
+    "test": "tsx tests/test-reconciler.ts"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ledgerguard",
+    "financial-auditor",
+    "reconciliation",
+    "stripe",
+    "plaid",
+    "quickbooks",
+    "netsuite",
+    "gaap",
+    "claude-mcp",
+    "chatgpt-plugin",
+    "custom-gpt-action"
+  ],
+  "author": "LedgerGuard Team",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.6.1",
+    "fastify": "^5.2.1",
+    "@fastify/cors": "^11.0.0",
+    "@fastify/swagger": "^9.4.2",
+    "@fastify/swagger-ui": "^5.2.2",
+    "zod": "^3.24.2",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "tsx": "^4.19.3",
+    "@types/node": "^22.13.4"
+  }
+}
