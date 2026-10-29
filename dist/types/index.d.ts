@@ -101,7 +101,7 @@ export interface VarianceReport {
         stripeProcessingFees: number;
         stripeNetDeposits: number;
         plaidBankDeposits: number;
-        erpPostedRevenue: number;
+        erpRecordedCashAndFees: number;
         totalVariance: number;
         variancePercentage: number;
         reconciliationStatus: 'RECONCILED' | 'VARIANCE_DETECTED' | 'MATERIAL_DRIFT';

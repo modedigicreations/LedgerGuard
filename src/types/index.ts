@@ -117,7 +117,13 @@ export interface VarianceReport {
     stripeProcessingFees: number;
     stripeNetDeposits: number;
     plaidBankDeposits: number;
-    erpPostedRevenue: number;
+    // Net Debit - Credit summed across accounts 1010 (Cash) and 6030 (Fees)
+    // on posted ERP entries for the period — NOT revenue. The mock ledger
+    // here never posts to a revenue account (4010), so there's nothing
+    // honestly callable "ERP posted revenue" to compute; this field used to
+    // be named that despite summing a cash/expense total, which is not a
+    // meaningful "revenue" figure under any accounting definition.
+    erpRecordedCashAndFees: number;
     totalVariance: number;
     variancePercentage: number;
     reconciliationStatus: 'RECONCILED' | 'VARIANCE_DETECTED' | 'MATERIAL_DRIFT';

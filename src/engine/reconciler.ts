@@ -27,18 +27,23 @@ export class ReconciliationEngine {
     const matchFees = options.matchProcessorFees !== false;
     const actor = options.actor || 'SYSTEM';
 
-    // 1. Calculate Recognized Revenue from Billing (Chargebee)
-    const recognizedRevenue = MOCK_CHARGEBEE_INVOICES.reduce(
-      (sum, inv) => sum + inv.totalRecognizedRevenue, 
+    // 1. Calculate Recognized Revenue from Billing (Chargebee), scoped to
+    // the requested period — without this, every field below reflects
+    // September's numbers no matter what period is asked for.
+    const periodInvoices = MOCK_CHARGEBEE_INVOICES.filter(inv => inv.date.startsWith(period));
+    const recognizedRevenue = periodInvoices.reduce(
+      (sum, inv) => sum + inv.totalRecognizedRevenue,
       0
     );
 
-    // 2. Calculate Stripe Gross Volume & Processing Fees
+    // 2. Calculate Stripe Gross Volume & Processing Fees, scoped to the
+    // requested period.
+    const periodStripeTx = MOCK_STRIPE_TRANSACTIONS.filter(tx => tx.created.startsWith(period));
     let stripeGrossVolume = 0;
     let stripeProcessingFees = 0;
     let stripeNetCharges = 0;
 
-    for (const tx of MOCK_STRIPE_TRANSACTIONS) {
+    for (const tx of periodStripeTx) {
       if (tx.type === 'charge') {
         stripeGrossVolume += tx.amountGross;
         stripeProcessingFees += tx.amountFee;
@@ -60,14 +65,17 @@ export class ReconciliationEngine {
     const septemberPayouts = MOCK_STRIPE_PAYOUTS.filter(p => p.arrivalDate.startsWith(period) && p.status === 'paid');
     const stripeNetDeposits = septemberPayouts.reduce((sum, p) => sum + p.amount, 0);
 
-    // 4. Calculate Plaid Bank Feed Settled Deposits in September
-    const plaidBankDeposits = MOCK_PLAID_TRANSACTIONS.reduce((sum, tx) => sum + tx.amount, 0);
+    // 4. Calculate Plaid Bank Feed Settled Deposits, scoped to the
+    // requested period.
+    const periodPlaidTx = MOCK_PLAID_TRANSACTIONS.filter(tx => tx.date.startsWith(period));
+    const plaidBankDeposits = periodPlaidTx.reduce((sum, tx) => sum + tx.amount, 0);
 
-    // 5. Calculate ERP Recorded Cash & Fees from posted journal entries
+    // 5. Calculate ERP Recorded Cash & Fees from posted journal entries,
+    // scoped to the requested period.
     let erpRecordedCash = 0;
     let erpRecordedFees = 0;
     for (const je of MOCK_ERP_JOURNAL_ENTRIES) {
-      if (je.status === 'POSTED') {
+      if (je.status === 'POSTED' && je.date.startsWith(period)) {
         for (const line of je.lines) {
           if (line.accountCode === '1010') { // Cash
             erpRecordedCash += (line.debit - line.credit);
@@ -103,7 +111,13 @@ export class ReconciliationEngine {
     const batch2Discrepancy = Number(((batch2CashDebit - feeAdjustedAmount) - batch2ExpectedNet).toFixed(2));
     const fintechHubFee = 536.80;
 
-    if (Math.abs(batch2Discrepancy) >= minDiscrepancy) {
+    // This anomaly is specific to Batch 2's actual settlement date — without
+    // this guard, auditing any other period would still re-report it
+    // (mislabeled under that period) since the lookups above aren't
+    // filtered by period themselves.
+    const batch2InPeriod = batch2Payout?.arrivalDate.startsWith(period) ?? false;
+
+    if (batch2InPeriod && Math.abs(batch2Discrepancy) >= minDiscrepancy) {
       const isFeeMatch = matchFees && Math.abs(batch2Discrepancy - fintechHubFee) < 0.01;
       detectedAnomalies.push({
         id: 'anom_fee_mismatch_001',
@@ -129,12 +143,16 @@ export class ReconciliationEngine {
     // Anomaly B: Unrecorded Dispute / Chargeback on Veloce Logistics
     // Stripe deducted -$1,215.00 ($1,200 chargeback + $15 dispute fee) via Batch 3.
     // Plaid recorded -$50.10 net debit, but QuickBooks has NO journal entry for Batch 3 at all!
-    const isDisputeRecorded = MOCK_ERP_JOURNAL_ENTRIES.some(je => 
-      je.status === 'POSTED' && 
+    const isDisputeRecorded = MOCK_ERP_JOURNAL_ENTRIES.some(je =>
+      je.status === 'POSTED' &&
       (je.externalReference === 'ADJ-CB-2026-09' || je.memo.includes('Veloce Logistics') || je.lines.some(l => l.accountCode === '1250'))
     );
     const disputeDiscrepancy = 1215.00;
-    if (!isDisputeRecorded && disputeDiscrepancy >= minDiscrepancy) {
+    // Tied to the actual dispute transaction's date — same reasoning as
+    // batch2InPeriod above.
+    const disputeTx = MOCK_STRIPE_TRANSACTIONS.find(tx => tx.id === 'dp_stripe_sep_005_dispute');
+    const disputeInPeriod = disputeTx?.created.startsWith(period) ?? false;
+    if (disputeInPeriod && !isDisputeRecorded && disputeDiscrepancy >= minDiscrepancy) {
       detectedAnomalies.push({
         id: 'anom_chargeback_002',
         type: 'UNRECORDED_CHARGEBACK',
@@ -159,7 +177,11 @@ export class ReconciliationEngine {
     // Anomaly C: Month-End Timing Difference (Float)
     // Batch 5 ($4,223.55 net) was created on Sept 30, but settles in Plaid on Oct 2.
     const monthEndFloat = 4223.55;
-    if (monthEndFloat >= minDiscrepancy) {
+    // Tied to the payout's creation date (the period it was initiated in,
+    // not the period it happens to settle in).
+    const floatPayout = MOCK_STRIPE_PAYOUTS.find(p => p.id === 'po_stripe_sep_batch_05_float');
+    const floatInPeriod = floatPayout?.created.startsWith(period) ?? false;
+    if (floatInPeriod && monthEndFloat >= minDiscrepancy) {
       detectedAnomalies.push({
         id: 'anom_timing_float_003',
         type: 'TIMING_DIFFERENCE',
@@ -181,7 +203,9 @@ export class ReconciliationEngine {
     }
 
     // Minor Anomaly: FX adjustment of $42.10
-    if (minDiscrepancy <= 45.00) {
+    const minorFxTx = MOCK_STRIPE_TRANSACTIONS.find(tx => tx.id === 'ch_stripe_sep_minor_fee');
+    const minorFxInPeriod = minorFxTx?.created.startsWith(period) ?? false;
+    if (minorFxInPeriod && minDiscrepancy <= 45.00) {
       detectedAnomalies.push({
         id: 'anom_minor_fx_004',
         type: 'FEE_MISMATCH',
@@ -226,14 +250,14 @@ export class ReconciliationEngine {
         stripeProcessingFees,
         stripeNetDeposits,
         plaidBankDeposits,
-        erpPostedRevenue: erpRecordedCash + erpRecordedFees,
+        erpRecordedCashAndFees: erpRecordedCash + erpRecordedFees,
         totalVariance,
         variancePercentage: Number(variancePercentage.toFixed(2)),
         reconciliationStatus
       },
       metrics: {
-        totalTransactionsAudited: MOCK_STRIPE_TRANSACTIONS.length + MOCK_PLAID_TRANSACTIONS.length + MOCK_CHARGEBEE_INVOICES.length,
-        matchedTransactionsCount: MOCK_CHARGEBEE_INVOICES.length - filteredAnomalies.length,
+        totalTransactionsAudited: periodStripeTx.length + periodPlaidTx.length + periodInvoices.length,
+        matchedTransactionsCount: periodInvoices.length - filteredAnomalies.length,
         anomaliesCount: detectedAnomalies.length,
         materialDiscrepanciesCount: filteredAnomalies.length,
         unmatchedFeesTotal: filteredAnomalies.reduce((sum, a) => sum + (a.matchedProcessorFee || 0), 0)
