@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createLedgerGuardMCPServer } from '../server-mcp.js';
+import { runMigrations } from '../db/migrate.js';
 async function main() {
+    await runMigrations();
     const server = createLedgerGuardMCPServer();
     const transport = new StdioServerTransport();
     await server.connect(transport);

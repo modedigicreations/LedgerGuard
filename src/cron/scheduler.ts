@@ -20,12 +20,12 @@ class BackgroundReconciliationCron {
   private executionHistory: CronExecutionResult[] = [];
   private isRunning: boolean = false;
 
-  public runOvernightReconciliation(period: string = '2026-09'): CronExecutionResult {
+  public async runOvernightReconciliation(period: string = '2026-09'): Promise<CronExecutionResult> {
     const runAt = new Date().toISOString();
     const executionId = `cron_exec_${Date.now()}`;
 
     // Run reconciliation with default threshold ($250.00)
-    const report = reconciler.runAudit({
+    const report = await reconciler.runAudit({
       period,
       minDiscrepancy: 250.00,
       matchProcessorFees: true,
@@ -82,7 +82,7 @@ class BackgroundReconciliationCron {
         ]
       };
 
-      auditTrail.record(
+      await auditTrail.record(
         'BACKGROUND_CRON',
         'ANOMALY_FLAGGED',
         `Automated Slack alert dispatched to #finance-ops-alerts for ${report.anomalies.length} material anomalies.`,

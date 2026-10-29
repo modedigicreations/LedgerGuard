@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 import { buildRestServer } from '../server-rest.js';
+import { runMigrations } from '../db/migrate.js';
+import { seedDemoData } from '../engine/journal-generator.js';
 async function start() {
+    await runMigrations();
+    await seedDemoData();
     const server = await buildRestServer();
     const port = Number(process.env.PORT) || 3333;
     const host = process.env.HOST || '0.0.0.0';

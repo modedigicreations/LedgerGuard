@@ -2,6 +2,7 @@ import { writeFileSync, mkdirSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { buildRestServer } from '../server-rest.js';
+import { pool } from '../db/pool.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const manifestsDir = resolve(__dirname, '../../manifests');
@@ -124,8 +125,13 @@ Triggers the background auditor daemon, checks month-end discrepancies, and disp
     console.log(`[Manifests] Generated integration documentation at: ${resolve(manifestsDir, 'README.md')}`);
     await app.close();
 }
-generate().catch((err) => {
+// buildRestServer() transitively imports db/pool.ts even though this
+// script never queries it — close it explicitly so the process exits
+// instead of hanging on the pg Pool's idle connection.
+generate()
+    .catch((err) => {
     console.error('[Manifests] Error generating manifests:', err);
-    process.exit(1);
-});
+    process.exitCode = 1;
+})
+    .finally(() => pool.end());
 //# sourceMappingURL=generate-manifests.js.map

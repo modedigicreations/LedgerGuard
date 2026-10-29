@@ -6,6 +6,6 @@ export interface AuditOptions {
     actor?: 'AI_AGENT_CLAUDE' | 'AI_AGENT_CHATGPT' | 'BACKGROUND_CRON' | 'USER_FINANCE_LEAD';
 }
 export declare class ReconciliationEngine {
-    runAudit(options?: AuditOptions): VarianceReport;
+    runAudit(options?: AuditOptions): Promise<VarianceReport>;
 }
 export declare const reconciler: ReconciliationEngine;

@@ -3,11 +3,11 @@ import { auditTrail } from '../engine/audit-trail.js';
 class BackgroundReconciliationCron {
     executionHistory = [];
     isRunning = false;
-    runOvernightReconciliation(period = '2026-09') {
+    async runOvernightReconciliation(period = '2026-09') {
         const runAt = new Date().toISOString();
         const executionId = `cron_exec_${Date.now()}`;
         // Run reconciliation with default threshold ($250.00)
-        const report = reconciler.runAudit({
+        const report = await reconciler.runAudit({
             period,
             minDiscrepancy: 250.00,
             matchProcessorFees: true,
@@ -60,7 +60,7 @@ class BackgroundReconciliationCron {
                     }
                 ]
             };
-            auditTrail.record('BACKGROUND_CRON', 'ANOMALY_FLAGGED', `Automated Slack alert dispatched to #finance-ops-alerts for ${report.anomalies.length} material anomalies.`, { executionId, anomaliesCount: report.anomalies.length, channel: '#finance-ops-alerts' });
+            await auditTrail.record('BACKGROUND_CRON', 'ANOMALY_FLAGGED', `Automated Slack alert dispatched to #finance-ops-alerts for ${report.anomalies.length} material anomalies.`, { executionId, anomaliesCount: report.anomalies.length, channel: '#finance-ops-alerts' });
         }
         const result = {
             executionId,

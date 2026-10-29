@@ -100,7 +100,7 @@ export async function buildRestServer() {
         }
     }, async (req) => {
         const query = req.query;
-        const report = reconciler.runAudit({
+        const report = await reconciler.runAudit({
             period: query.period || '2026-09',
             minDiscrepancy: 0.00,
             actor: 'AI_AGENT_CHATGPT'
@@ -128,13 +128,21 @@ export async function buildRestServer() {
             description: 'Check service health and engine status'
         }
     }, async () => {
+        let auditTrailStatus = 'degraded';
+        try {
+            auditTrailStatus = (await auditTrail.verifyIntegrity()).isValid ? 'verified' : 'degraded';
+        }
+        catch {
+            // A DB hiccup shouldn't fail the health check itself — Railway's
+            // healthcheckPath only needs this endpoint to respond.
+        }
         return {
             status: 'healthy',
             service: 'ledgerguard',
             version: '1.0.0',
             timestamp: new Date().toISOString(),
             uptime: process.uptime(),
-            auditTrailStatus: auditTrail.verifyIntegrity().isValid ? 'verified' : 'degraded'
+            auditTrailStatus
         };
     });
     app.post('/api/v1/adjustments/draft', {
@@ -218,8 +226,8 @@ export async function buildRestServer() {
         }
     }, async () => {
         return {
-            integrity: auditTrail.verifyIntegrity(),
-            trail: auditTrail.getTrail()
+            integrity: await auditTrail.verifyIntegrity(),
+            trail: await auditTrail.getTrail()
         };
     });
     app.post('/api/v1/cron/trigger', {

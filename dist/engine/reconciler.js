@@ -1,7 +1,7 @@
 import { MOCK_CHARGEBEE_INVOICES, MOCK_STRIPE_TRANSACTIONS, MOCK_STRIPE_PAYOUTS, MOCK_PLAID_TRANSACTIONS, MOCK_ERP_JOURNAL_ENTRIES } from '../data/mock-data.js';
 import { auditTrail } from './audit-trail.js';
 export class ReconciliationEngine {
-    runAudit(options = {}) {
+    async runAudit(options = {}) {
         const period = options.period || '2026-09';
         const minDiscrepancy = options.minDiscrepancy !== undefined ? options.minDiscrepancy : 250.00;
         const matchFees = options.matchProcessorFees !== false;
@@ -223,7 +223,7 @@ export class ReconciliationEngine {
             anomalies: filteredAnomalies
         };
         // Log to immutable GAAP audit trail
-        auditTrail.record(actor, 'RECONCILIATION_RUN', `Audit completed for period ${period}. Found ${filteredAnomalies.length} material discrepancies (threshold: $${minDiscrepancy}). Status: ${reconciliationStatus}.`, {
+        await auditTrail.record(actor, 'RECONCILIATION_RUN', `Audit completed for period ${period}. Found ${filteredAnomalies.length} material discrepancies (threshold: $${minDiscrepancy}). Status: ${reconciliationStatus}.`, {
             reportId: report.reportId,
             period,
             materialDiscrepancies: filteredAnomalies.length,

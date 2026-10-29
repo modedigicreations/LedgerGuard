@@ -21,7 +21,7 @@ export interface AuditOptions {
 }
 
 export class ReconciliationEngine {
-  public runAudit(options: AuditOptions = {}): VarianceReport {
+  public async runAudit(options: AuditOptions = {}): Promise<VarianceReport> {
     const period = options.period || '2026-09';
     const minDiscrepancy = options.minDiscrepancy !== undefined ? options.minDiscrepancy : 250.00;
     const matchFees = options.matchProcessorFees !== false;
@@ -266,7 +266,7 @@ export class ReconciliationEngine {
     };
 
     // Log to immutable GAAP audit trail
-    auditTrail.record(
+    await auditTrail.record(
       actor,
       'RECONCILIATION_RUN',
       `Audit completed for period ${period}. Found ${filteredAnomalies.length} material discrepancies (threshold: $${minDiscrepancy}). Status: ${reconciliationStatus}.`,

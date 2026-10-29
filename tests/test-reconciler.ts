@@ -2,13 +2,17 @@ import { reconciler } from '../src/engine/reconciler.js';
 import { journalService } from '../src/engine/journal-generator.js';
 import { auditTrail } from '../src/engine/audit-trail.js';
 import { backgroundCron } from '../src/cron/scheduler.js';
+import { runMigrations } from '../src/db/migrate.js';
+import { pool } from '../src/db/pool.js';
 
 async function runTests() {
   console.log('🧪 Starting LedgerGuard Verification Test Suite...\n');
 
+  await runMigrations();
+
   // Test 1: Run September Audit with $250 Materiality Threshold
   console.log('Test 1: Audit September Revenue vs Stripe Net Deposits (Threshold > $250)');
-  const report = reconciler.runAudit({
+  const report = await reconciler.runAudit({
     period: '2026-09',
     minDiscrepancy: 250.00,
     matchProcessorFees: true,
@@ -48,7 +52,7 @@ async function runTests() {
 
   // Test 4: GAAP Dual-Entry Balancing Journal Adjustment
   console.log('\nTest 4: GAAP Dual-Entry Balancing Journal Generation');
-  const draftAdj = journalService.createDraftFromAnomaly('anom_fee_mismatch_001', 'AI_AGENT_CLAUDE');
+  const draftAdj = await journalService.createDraftFromAnomaly('anom_fee_mismatch_001', 'AI_AGENT_CLAUDE');
   console.log(`  ✓ Draft Adjustment Created: ${draftAdj.adjustmentNumber}`);
   console.log(`  ✓ Total Debits: $${draftAdj.totalDebit.toFixed(2)}, Total Credits: $${draftAdj.totalCredit.toFixed(2)}`);
   console.log(`  ✓ Is Balanced: ${draftAdj.isBalanced}`);
@@ -58,21 +62,21 @@ async function runTests() {
 
   // Test 5: Approval Workflow and ERP Sync
   console.log('\nTest 5: User Approval & QuickBooks Sync Workflow');
-  const approvalRes = journalService.approveAdjustment(draftAdj.id, 'Fractional CFO');
-  if (!approvalRes.success || draftAdj.status !== 'APPROVED') {
+  const approvalRes = await journalService.approveAdjustment(draftAdj.id, 'Fractional CFO');
+  if (!approvalRes.success || approvalRes.adjustment?.status !== 'APPROVED') {
     throw new Error('Approval workflow failed');
   }
-  console.log(`  ✓ Adjustment approved by: ${draftAdj.approvedBy}`);
+  console.log(`  ✓ Adjustment approved by: ${approvalRes.adjustment.approvedBy}`);
 
-  const commitRes = journalService.commitToERP(draftAdj.id, 'QUICKBOOKS');
-  if (!commitRes.success || draftAdj.status !== 'POSTED') {
+  const commitRes = await journalService.commitToERP(draftAdj.id, 'QUICKBOOKS');
+  if (!commitRes.success || commitRes.adjustment?.status !== 'POSTED') {
     throw new Error('ERP sync commit failed');
   }
   console.log(`  ✓ Committed to QuickBooks Online: ${commitRes.erpPostedId}`);
 
   // Test 6: Cryptographic Audit Trail Verification
   console.log('\nTest 6: GAAP Cryptographic Audit Trail Integrity');
-  const integrity = auditTrail.verifyIntegrity();
+  const integrity = await auditTrail.verifyIntegrity();
   console.log(`  ✓ Chain Valid: ${integrity.isValid}`);
   console.log(`  ✓ Audited Entries: ${integrity.checkedEntries}`);
   if (!integrity.isValid) {
@@ -81,7 +85,7 @@ async function runTests() {
 
   // Test 7: Background Cron & Slack Alert Dispatching
   console.log('\nTest 7: Overnight Background Cron & Slack Notification Dispatch');
-  const cronRes = backgroundCron.runOvernightReconciliation('2026-09');
+  const cronRes = await backgroundCron.runOvernightReconciliation('2026-09');
   console.log(`  ✓ Cron Status: ${cronRes.status}`);
   console.log(`  ✓ Slack Alert Dispatched: ${cronRes.slackAlertDispatched}`);
   if (!cronRes.slackAlertDispatched) {
@@ -91,7 +95,7 @@ async function runTests() {
 
   // Test 8: Post-Sync Re-Audit Confirms Batch 2 Fee Anomaly is Resolved
   console.log('\nTest 8: Post-Sync Re-Audit Confirms Batch 2 Fee Anomaly Resolved');
-  const postReport = reconciler.runAudit({ period: '2026-09', minDiscrepancy: 250.00 });
+  const postReport = await reconciler.runAudit({ period: '2026-09', minDiscrepancy: 250.00 });
   const stillHasFeeAnom = postReport.anomalies.some(a => a.id === 'anom_fee_mismatch_001');
   if (stillHasFeeAnom) {
     throw new Error('Committed journal entry should have resolved anom_fee_mismatch_001');
@@ -101,7 +105,11 @@ async function runTests() {
   console.log('\n🎉 ALL 8 TESTS PASSED SUCCESSFULLY! LedgerGuard workflow is verified.\n');
 }
 
-runTests().catch((err) => {
-  console.error('\n❌ Test failure:', err);
-  process.exit(1);
-});
+// A one-shot script, not a long-running server — close the pool so the pg
+// Pool's open connection doesn't keep the process alive after we're done.
+runTests()
+  .catch((err) => {
+    console.error('\n❌ Test failure:', err);
+    process.exitCode = 1;
+  })
+  .finally(() => pool.end());

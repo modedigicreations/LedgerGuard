@@ -61,6 +61,22 @@ Finance teams spend days manually cross-referencing **Stripe/Adyen**, billing pl
 
 ## 🚀 Quick Start
 
+### 0. Local Database
+
+Journal adjustments and the GAAP audit trail are stored in Postgres (not
+in-memory — they must survive a restart). For local development:
+
+```bash
+brew install postgresql@16   # if you don't have it
+brew services start postgresql@16
+createdb ledgerguard_dev
+```
+
+No further config needed — the app falls back to
+`postgresql://localhost:5432/ledgerguard_dev` when `DATABASE_URL` isn't
+set (it is set automatically in production by Railway's Postgres add-on).
+Migrations run automatically on boot.
+
 ### 1. Installation & Build
 
 ```bash

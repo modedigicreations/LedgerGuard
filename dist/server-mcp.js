@@ -169,7 +169,7 @@ export function createLedgerGuardMCPServer() {
                 const period = args?.period || '2026-09';
                 const minDiscrepancy = typeof args?.minDiscrepancy === 'number' ? args.minDiscrepancy : 250.00;
                 const matchProcessorFees = args?.matchProcessorFees !== false;
-                const report = reconciler.runAudit({
+                const report = await reconciler.runAudit({
                     period,
                     minDiscrepancy,
                     matchProcessorFees,
@@ -187,7 +187,7 @@ export function createLedgerGuardMCPServer() {
             if (name === 'get_transaction_anomalies') {
                 const period = args?.period || '2026-09';
                 const severity = args?.severity;
-                const report = reconciler.runAudit({
+                const report = await reconciler.runAudit({
                     period,
                     minDiscrepancy: 0.00, // get all
                     matchProcessorFees: true,
@@ -214,10 +214,10 @@ export function createLedgerGuardMCPServer() {
                 const anomalyId = args?.anomalyId;
                 let adjustment;
                 if (anomalyId) {
-                    adjustment = journalService.createDraftFromAnomaly(anomalyId, 'AI_AGENT_CLAUDE');
+                    adjustment = await journalService.createDraftFromAnomaly(anomalyId, 'AI_AGENT_CLAUDE');
                 }
                 else {
-                    adjustment = journalService.draftAdjustment({
+                    adjustment = await journalService.draftAdjustment({
                         reference: 'ADJ-MANUAL',
                         memo: args?.memo || 'Manual adjusting entry',
                         date: '2026-09-30',
@@ -236,7 +236,7 @@ export function createLedgerGuardMCPServer() {
             if (name === 'approve_journal_adjustment') {
                 const adjustmentId = args?.adjustmentId;
                 const approvedBy = args?.approvedBy || 'Finance Lead';
-                const result = journalService.approveAdjustment(adjustmentId, approvedBy);
+                const result = await journalService.approveAdjustment(adjustmentId, approvedBy);
                 return {
                     content: [
                         {
@@ -249,7 +249,7 @@ export function createLedgerGuardMCPServer() {
             if (name === 'commit_journal_adjustment') {
                 const adjustmentId = args?.adjustmentId;
                 const targetERP = args?.targetERP || 'QUICKBOOKS';
-                const result = journalService.commitToERP(adjustmentId, targetERP);
+                const result = await journalService.commitToERP(adjustmentId, targetERP);
                 return {
                     content: [
                         {
@@ -261,8 +261,8 @@ export function createLedgerGuardMCPServer() {
             }
             if (name === 'get_gaap_audit_trail') {
                 const verify = args?.verifyIntegrity !== false;
-                const trail = auditTrail.getTrail();
-                const verification = verify ? auditTrail.verifyIntegrity() : null;
+                const trail = await auditTrail.getTrail();
+                const verification = verify ? await auditTrail.verifyIntegrity() : null;
                 return {
                     content: [
                         {
@@ -278,7 +278,7 @@ export function createLedgerGuardMCPServer() {
             }
             if (name === 'trigger_reconciliation_batch') {
                 const period = args?.period || '2026-09';
-                const result = backgroundCron.runOvernightReconciliation(period);
+                const result = await backgroundCron.runOvernightReconciliation(period);
                 return {
                     content: [
                         {
@@ -330,7 +330,7 @@ export function createLedgerGuardMCPServer() {
     server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
         const { uri } = request.params;
         if (uri === 'ledgerguard://reports/variance-latest') {
-            const report = reconciler.runAudit({ period: '2026-09', minDiscrepancy: 250.00 });
+            const report = await reconciler.runAudit({ period: '2026-09', minDiscrepancy: 250.00 });
             return {
                 contents: [
                     {
@@ -342,8 +342,8 @@ export function createLedgerGuardMCPServer() {
             };
         }
         if (uri === 'ledgerguard://reports/gaap-audit-trail') {
-            const trail = auditTrail.getTrail();
-            const verification = auditTrail.verifyIntegrity();
+            const trail = await auditTrail.getTrail();
+            const verification = await auditTrail.verifyIntegrity();
             return {
                 contents: [
                     {

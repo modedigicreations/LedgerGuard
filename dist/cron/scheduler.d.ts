@@ -15,7 +15,7 @@ export interface CronExecutionResult {
 declare class BackgroundReconciliationCron {
     private executionHistory;
     private isRunning;
-    runOvernightReconciliation(period?: string): CronExecutionResult;
+    runOvernightReconciliation(period?: string): Promise<CronExecutionResult>;
     getHistory(): CronExecutionResult[];
 }
 export declare const backgroundCron: BackgroundReconciliationCron;
