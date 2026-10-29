@@ -87,5 +87,13 @@ export async function createOidcProvider(issuer: string): Promise<Provider> {
 		// within every latency budget this app works under.
 	});
 
+	// Provider extends Koa — Railway (and any reverse proxy) terminates TLS
+	// and forwards to this container over plain HTTP, so without this every
+	// endpoint oidc-provider advertises in its discovery document (and
+	// every redirect it issues) gets built as http:// instead of https://,
+	// since Koa infers the protocol from the connection it actually sees
+	// unless told to trust X-Forwarded-Proto.
+	provider.proxy = true;
+
 	return provider;
 }
