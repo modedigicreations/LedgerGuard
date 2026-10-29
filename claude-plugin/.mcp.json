@@ -2,7 +2,7 @@
   "mcpServers": {
     "ledgerguard": {
       "type": "http",
-      "url": "https://REPLACE_WITH_YOUR_PUBLIC_LEDGERGUARD_HOST/mcp"
+      "url": "https://ledgerguard-production-8bc4.up.railway.app/mcp"
     }
   }
 }

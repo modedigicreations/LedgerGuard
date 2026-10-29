@@ -30,8 +30,18 @@ financial systems.
 
 ## Before you submit this plugin
 
-`.mcp.json` points at a placeholder URL. Deploy `server-rest.ts` somewhere
-with a public HTTPS address (and confirm it speaks the current MCP
-Streamable HTTP transport, not just the legacy SSE transport) before
-replacing that placeholder and submitting for review — a plugin pointing
-at an unreachable server will fail validation.
+`.mcp.json` now points at a real, running server
+(`https://ledgerguard-production-8bc4.up.railway.app/mcp`, deployed on
+Railway, serving current MCP Streamable HTTP) rather than a placeholder.
+Still outstanding before submitting:
+
+- Run `claude plugin validate ./claude-plugin` (no `claude` CLI was
+  available in the environment this was built in).
+- This demo deployment serves mock September 2026 data only — decide
+  whether that's the intended public-facing behavior or whether it should
+  be gated/relabeled before a real audience can reach it from the
+  directory.
+- The remaining `zod` memory-exhaustion CVE in the server's dependency
+  tree (fixed in zod v4; left alone during the transport migration since
+  it's a breaking change across every schema in this codebase) is worth
+  resolving before wide distribution.
