@@ -4,5 +4,7 @@
   "version": "1.0.0",
   "description": "Audits recognized revenue (Chargebee) against Stripe net deposits, Plaid bank feeds, and the ERP ledger. Flags discrepancies over a materiality threshold, matches them to processor fees, and drafts GAAP-compliant dual-entry journal adjustments for your approval before posting to QuickBooks, NetSuite, or Xero.",
   "author": { "name": "LedgerGuard Team" },
-  "license": "MIT"
+  "license": "MIT",
+  "icon": ".claude-plugin/icon.png",
+  "privacyPolicyUrl": "https://github.com/modedigicreations/LedgerGuard/blob/main/claude-plugin/PRIVACY.md"
 }
