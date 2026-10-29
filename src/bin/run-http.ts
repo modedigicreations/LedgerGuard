@@ -14,7 +14,7 @@ async function start() {
 • Standalone Web Dashboard : http://localhost:${port}
 • OpenAPI / Swagger UI     : http://localhost:${port}/docs
 • ChatGPT Plugin Manifest  : http://localhost:${port}/.well-known/ai-plugin.json
-• MCP SSE Remote Transport : http://localhost:${port}/sse
+• MCP Streamable HTTP      : http://localhost:${port}/mcp
 • Audit Scenario           : September 2026 ($250 threshold & fee matching)
 ========================================================================
 `);

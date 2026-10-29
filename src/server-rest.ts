@@ -2,7 +2,7 @@ import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
-import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createLedgerGuardMCPServer } from './server-mcp.js';
 import { reconciler } from './engine/reconciler.js';
 import { journalService } from './engine/journal-generator.js';
@@ -252,22 +252,24 @@ export async function buildRestServer(): Promise<FastifyInstance> {
     return backgroundCron.runOvernightReconciliation(body.period || '2026-09');
   });
 
-  // MCP Server-Sent Events (SSE) Transport for Remote MCP Clients
-  let sseTransport: SSEServerTransport | null = null;
-  const mcpServer = createLedgerGuardMCPServer();
-
-  app.get('/sse', async (req, reply) => {
-    reply.raw.setHeader('Access-Control-Allow-Origin', '*');
-    sseTransport = new SSEServerTransport('/messages', reply.raw);
-    await mcpServer.connect(sseTransport);
-  });
-
-  app.post('/messages', async (req, reply) => {
-    if (sseTransport) {
-      await sseTransport.handlePostMessage(req.raw, reply.raw);
-    } else {
-      reply.status(400).send({ error: 'SSE session not established yet. Connect to /sse first.' });
-    }
+  // MCP Streamable HTTP Transport for Remote MCP Clients (the current MCP
+  // transport — the legacy HTTP+SSE transport this used to implement, with
+  // a separate GET /sse + POST /messages pair, is deprecated and isn't
+  // what the Claude plugin directory's `.mcp.json` expects).
+  //
+  // Stateless: a fresh MCP server + transport per request, per the SDK's
+  // own documented pattern for a server like this one with no state to
+  // share between calls. The old SSE version kept ONE shared transport in
+  // a module-level variable, so a second client connecting to /sse
+  // silently replaced the first client's transport and broke its pending
+  // /messages posts — stateless mode has no such shared mutable state to
+  // race on.
+  app.all('/mcp', async (req, reply) => {
+    reply.hijack();
+    const mcpServer = createLedgerGuardMCPServer();
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    await mcpServer.connect(transport);
+    await transport.handleRequest(req.raw, reply.raw, req.body);
   });
 
   return app;

@@ -283,17 +283,64 @@
         }
       }
     },
-    "/sse": {
+    "/mcp": {
       "get": {
         "responses": {
           "200": {
             "description": "Default Response"
           }
         }
-      }
-    },
-    "/messages": {
+      },
+      "head": {
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "trace": {
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "delete": {
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "options": {
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "patch": {
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "put": {
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
       "post": {
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "query": {
         "responses": {
           "200": {
             "description": "Default Response"

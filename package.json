@@ -39,17 +39,17 @@
   "author": "LedgerGuard Team",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.6.1",
-    "fastify": "^5.2.1",
     "@fastify/cors": "^11.0.0",
     "@fastify/swagger": "^9.4.2",
-    "@fastify/swagger-ui": "^5.2.2",
-    "zod": "^3.24.2",
-    "dotenv": "^16.4.7"
+    "@fastify/swagger-ui": "^6.1.2",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "dotenv": "^16.4.7",
+    "fastify": "^5.2.1",
+    "zod": "^3.24.2"
   },
   "devDependencies": {
-    "typescript": "^5.7.3",
+    "@types/node": "^22.13.4",
     "tsx": "^4.19.3",
-    "@types/node": "^22.13.4"
+    "typescript": "^5.7.3"
   }
 }

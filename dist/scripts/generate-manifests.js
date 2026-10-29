@@ -62,7 +62,7 @@ This directory contains integration manifests and configurations for deploying L
 
 ## 1. Setup in Claude Desktop (MCP)
 
-LedgerGuard natively supports the Model Context Protocol (MCP) using stdio or SSE.
+LedgerGuard natively supports the Model Context Protocol (MCP) using stdio (local) or Streamable HTTP (remote, at \`/mcp\`).
 
 ### Stdio Transport Configuration:
 Add the following snippet to your Claude Desktop configuration file:

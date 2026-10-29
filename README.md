@@ -181,7 +181,7 @@ ledgerguard/
 │   │   └── audit-trail.ts      # SHA-256 cryptographic compliance log
 │   ├── cron/scheduler.ts       # Overnight background daemon & Slack dispatcher
 │   ├── server-mcp.ts           # MCP Server (Tools, Resources, Prompts)
-│   ├── server-rest.ts          # Fastify HTTP server (OpenAPI, SSE transport)
+│   ├── server-rest.ts          # Fastify HTTP server (OpenAPI, MCP Streamable HTTP)
 │   ├── dashboard/html.ts       # Standalone modern web dashboard UI
 │   ├── bin/
 │   │   ├── run-stdio.ts        # Claude Desktop stdio runner
