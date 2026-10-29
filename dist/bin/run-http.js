@@ -4,7 +4,13 @@ import { runMigrations } from '../db/migrate.js';
 import { seedDemoData } from '../engine/journal-generator.js';
 async function start() {
     await runMigrations();
-    await seedDemoData();
+    // Only in mock mode — seedDemoData() drafts an adjustment for the fixed
+    // demo's fee-mismatch anomaly specifically, which has no business
+    // showing up in the live site's adjustments list once real providers
+    // (or no providers at all) are what's actually being reported.
+    if (process.env.LEDGERGUARD_DATA_MODE !== 'live') {
+        await seedDemoData();
+    }
     const server = await buildRestServer();
     const port = Number(process.env.PORT) || 3333;
     const host = process.env.HOST || '0.0.0.0';
@@ -17,7 +23,7 @@ async function start() {
 • OpenAPI / Swagger UI     : http://localhost:${port}/docs
 • ChatGPT Plugin Manifest  : http://localhost:${port}/.well-known/ai-plugin.json
 • MCP Streamable HTTP      : http://localhost:${port}/mcp
-• Audit Scenario           : September 2026 ($250 threshold & fee matching)
+• Data Mode                : ${process.env.LEDGERGUARD_DATA_MODE === 'live' ? 'live (real providers)' : 'mock (fixed Sept 2026 demo scenario)'}
 ========================================================================
 `);
 }

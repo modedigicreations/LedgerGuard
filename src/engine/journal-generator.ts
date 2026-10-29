@@ -259,6 +259,30 @@ class JournalAdjustmentService {
 		const { rows } = await pool.query('SELECT * FROM journal_adjustments ORDER BY created_at ASC');
 		return rows.map(rowToAdjustment);
 	}
+
+	// Only a DRAFT can be deleted — once something is APPROVED or POSTED,
+	// removing it would mean the audit trail references an adjustment that
+	// no longer exists, which defeats the point of keeping that trail.
+	public async deleteAdjustment(id: string): Promise<{ success: boolean; error?: string }> {
+		const { rows } = await pool.query('SELECT * FROM journal_adjustments WHERE id = $1', [id]);
+		if (rows.length === 0) {
+			return { success: false, error: `Adjustment ${id} not found.` };
+		}
+		const adj = rowToAdjustment(rows[0]);
+		if (adj.status !== 'DRAFT') {
+			return { success: false, error: `Only a DRAFT adjustment can be deleted. Current status: ${adj.status}.` };
+		}
+
+		await pool.query('DELETE FROM journal_adjustments WHERE id = $1', [id]);
+		await auditTrail.record(
+			'USER_FINANCE_LEAD',
+			'JOURNAL_REJECTED',
+			`Draft adjustment ${adj.adjustmentNumber} deleted before approval.`,
+			{ adjustmentId: id, adjustmentNumber: adj.adjustmentNumber },
+		);
+
+		return { success: true };
+	}
 }
 
 export const journalService = new JournalAdjustmentService();

@@ -492,8 +492,8 @@ export function getDashboardHtml(): string {
           <span>Recognized Revenue</span>
           <span style="color:#94a3b8">Chargebee</span>
         </div>
-        <div class="kpi-value" id="kpi-rev">$125,000.00</div>
-        <div class="kpi-subtext" style="color:#38bdf8">7 Billing invoices recognized</div>
+        <div class="kpi-value" id="kpi-rev">Loading…</div>
+        <div class="kpi-subtext" style="color:#38bdf8" id="kpi-rev-sub"></div>
       </div>
 
       <div class="kpi-card">
@@ -501,26 +501,26 @@ export function getDashboardHtml(): string {
           <span>Stripe Net Deposits</span>
           <span style="color:#94a3b8">Settled</span>
         </div>
-        <div class="kpi-value" id="kpi-stripe">$116,392.25</div>
-        <div class="kpi-subtext" style="color:#94a3b8">Fees: $3,557.75 deducted</div>
+        <div class="kpi-value" id="kpi-stripe">Loading…</div>
+        <div class="kpi-subtext" style="color:#94a3b8" id="kpi-stripe-sub"></div>
       </div>
 
       <div class="kpi-card">
         <div class="kpi-title">
           <span>Plaid Bank Deposits</span>
-          <span style="color:#94a3b8">Chase 4091</span>
+          <span style="color:#94a3b8">Bank feed</span>
         </div>
-        <div class="kpi-value" id="kpi-plaid">$116,392.25</div>
-        <div class="kpi-subtext" style="color:#10b981">✓ 100% matched to Stripe net</div>
+        <div class="kpi-value" id="kpi-plaid">Loading…</div>
+        <div class="kpi-subtext" style="color:#94a3b8" id="kpi-plaid-sub"></div>
       </div>
 
       <div class="kpi-card">
         <div class="kpi-title">
           <span>Reconciliation Status</span>
-          <span class="status-badge status-drift" id="kpi-badge">MATERIAL DRIFT</span>
+          <span class="status-badge" id="kpi-badge">Loading…</span>
         </div>
-        <div class="kpi-value" id="kpi-anom" style="color:#fb7185">3 Anomalies</div>
-        <div class="kpi-subtext" style="color:#fb7185">Discrepancies > $250.00 threshold</div>
+        <div class="kpi-value" id="kpi-anom">Loading…</div>
+        <div class="kpi-subtext" style="color:#94a3b8">Discrepancies above the materiality threshold</div>
       </div>
     </div>
 
@@ -594,7 +594,20 @@ export function getDashboardHtml(): string {
         document.getElementById('kpi-rev').innerText = fmtKpi(data.summary.recognizedRevenue);
         document.getElementById('kpi-stripe').innerText = fmtKpi(data.summary.stripeNetDeposits);
         document.getElementById('kpi-plaid').innerText = fmtKpi(data.summary.plaidBankDeposits);
-        document.getElementById('kpi-anom').innerText = data.metrics.materialDiscrepanciesCount + ' Anomalies';
+        document.getElementById('kpi-anom').innerText = data.summary.reconciliationStatus === 'INCOMPLETE_DATA'
+          ? 'No data'
+          : data.metrics.materialDiscrepanciesCount + ' Anomalies';
+
+        // Sub-labels: only ever state something actually computed from
+        // this response — no static placeholder figures.
+        document.getElementById('kpi-rev-sub').innerText =
+          data.providerStatus.CHARGEBEE === 'CONNECTED' ? 'From Chargebee' : 'Not connected';
+        document.getElementById('kpi-stripe-sub').innerText =
+          data.summary.stripeProcessingFees !== null
+            ? 'Fees: $' + data.summary.stripeProcessingFees.toLocaleString('en-US', {minimumFractionDigits: 2}) + ' deducted'
+            : 'Not connected';
+        document.getElementById('kpi-plaid-sub').innerText =
+          data.providerStatus.PLAID === 'CONNECTED' ? 'From Plaid' : 'Not connected';
 
         const badge = document.getElementById('kpi-badge');
         badge.innerText = data.summary.reconciliationStatus.replace(/_/g, ' ');

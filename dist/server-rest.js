@@ -220,6 +220,18 @@ export async function buildRestServer() {
         }
         return journalService.commitToERP(body.adjustmentId, body.targetERP || 'QUICKBOOKS');
     });
+    app.delete('/api/v1/adjustments/:id', {
+        schema: {
+            description: 'Delete a draft journal adjustment (DRAFT status only)'
+        }
+    }, async (req, reply) => {
+        const { id } = req.params;
+        const result = await journalService.deleteAdjustment(id);
+        if (!result.success) {
+            return reply.status(400).send(result);
+        }
+        return result;
+    });
     app.get('/api/v1/audit-trail', {
         schema: {
             description: 'Get the cryptographic GAAP audit trail and verify chain integrity'

@@ -15,6 +15,10 @@ declare class JournalAdjustmentService {
     }>;
     getAdjustment(id: string): Promise<JournalAdjustment | undefined>;
     listAdjustments(): Promise<JournalAdjustment[]>;
+    deleteAdjustment(id: string): Promise<{
+        success: boolean;
+        error?: string;
+    }>;
 }
 export declare const journalService: JournalAdjustmentService;
 export declare function seedDemoData(): Promise<void>;
