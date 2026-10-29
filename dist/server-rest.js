@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import cookie from '@fastify/cookie';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -9,14 +10,22 @@ import { journalService } from './engine/journal-generator.js';
 import { auditTrail } from './engine/audit-trail.js';
 import { backgroundCron } from './cron/scheduler.js';
 import { getDashboardHtml } from './dashboard/html.js';
+import { createOidcProvider } from './auth/oidc-provider.js';
+import { resolveUserIdFromBearer } from './auth/authenticate.js';
+import { sendMagicLink, verifyMagicLink } from './auth/magic-link.js';
+import { createDashboardSession, resolveDashboardSession, destroyDashboardSession, DASHBOARD_COOKIE_NAME } from './auth/dashboard-session.js';
+import { emailFormPage, checkEmailPage, errorPage } from './auth/pages.js';
 export async function buildRestServer() {
     const app = Fastify({
         logger: false
     });
+    const issuer = process.env.LEDGERGUARD_OIDC_ISSUER || 'http://localhost:3333';
+    const provider = await createOidcProvider(issuer);
     await app.register(cors, {
         origin: '*',
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
     });
+    await app.register(cookie);
     // Setup Swagger / OpenAPI 3.1
     await app.register(swagger, {
         openapi: {
@@ -41,8 +50,177 @@ export async function buildRestServer() {
             deepLinking: false
         }
     });
+    // ---------------------------------------------------------------------
+    // Dashboard login (cookie-based) — same magic-link mechanism as the
+    // OAuth interaction flow below, just finishing differently: a cookie
+    // instead of resuming an OAuth grant.
+    // ---------------------------------------------------------------------
+    app.register(async (loginScope) => {
+        loginScope.addContentTypeParser('application/x-www-form-urlencoded', (_req, _payload, done) => done(null));
+        loginScope.get('/login', async (req, reply) => {
+            reply.type('text/html').send(emailFormPage('/login'));
+        });
+        loginScope.post('/login', async (req, reply) => {
+            const body = await readFormBody(req);
+            const email = body.get('email');
+            if (!email) {
+                reply.type('text/html').send(errorPage('An email address is required.'));
+                return;
+            }
+            await sendMagicLink({ email, baseUrl: issuer });
+            reply.type('text/html').send(checkEmailPage(email));
+        });
+        loginScope.get('/logout', async (req, reply) => {
+            await destroyDashboardSession(req.cookies[DASHBOARD_COOKIE_NAME]);
+            reply.clearCookie(DASHBOARD_COOKIE_NAME, { path: '/' });
+            reply.redirect('/login');
+        });
+    });
+    // Dashboard-only verify (no OAuth interaction to resume) — sets the
+    // dashboard cookie and redirects in.
+    app.get('/magic-link/verify', async (req, reply) => {
+        const token = req.query.token;
+        if (!token) {
+            reply.type('text/html').send(errorPage('Missing sign-in token.'));
+            return;
+        }
+        const result = await verifyMagicLink(token);
+        if (!result) {
+            reply.type('text/html').send(errorPage('This sign-in link is invalid, expired, or already used. Request a new one.'));
+            return;
+        }
+        const session = await createDashboardSession(result.userId);
+        reply.setCookie(DASHBOARD_COOKIE_NAME, session.id, {
+            path: '/',
+            httpOnly: true,
+            secure: issuer.startsWith('https://'),
+            sameSite: 'lax',
+            expires: session.expiresAt,
+        });
+        reply.redirect('/');
+    });
+    // ---------------------------------------------------------------------
+    // OAuth interaction pages — rendered by us, driven by oidc-provider's
+    // interaction state (interactions.url() in oidc-provider.ts points
+    // here). Two prompt kinds: 'login' (no one's signed in yet — show the
+    // email form) and 'consent' (signed in, but this client hasn't been
+    // authorized yet — show an Allow screen).
+    // ---------------------------------------------------------------------
+    app.register(async (interactionScope) => {
+        interactionScope.addContentTypeParser('application/x-www-form-urlencoded', (_req, _payload, done) => done(null));
+        interactionScope.get('/interaction/:uid', async (req, reply) => {
+            const { uid } = req.params;
+            reply.hijack();
+            const interaction = await provider.interactionDetails(req.raw, reply.raw);
+            if (interaction.prompt.name === 'consent') {
+                const clientId = interaction.params.client_id;
+                reply.raw.setHeader('Content-Type', 'text/html');
+                reply.raw.end(consentPage(uid, clientId));
+                return;
+            }
+            reply.raw.setHeader('Content-Type', 'text/html');
+            reply.raw.end(emailFormPage(`/interaction/${uid}/email`));
+        });
+        interactionScope.post('/interaction/:uid/email', async (req, reply) => {
+            const { uid } = req.params;
+            const body = await readFormBody(req);
+            const email = body.get('email');
+            if (!email) {
+                reply.type('text/html').send(errorPage('An email address is required.'));
+                return;
+            }
+            await sendMagicLink({ email, interactionUid: uid, baseUrl: issuer });
+            reply.type('text/html').send(checkEmailPage(email));
+        });
+        // Lives under /interaction/:uid specifically (not a top-level path) so
+        // the browser actually sends oidc-provider's interaction cookie — see
+        // sendMagicLink's comment on verifyPath for why that matters.
+        interactionScope.get('/interaction/:uid/verify', async (req, reply) => {
+            const token = req.query.token;
+            if (!token) {
+                reply.type('text/html').send(errorPage('Missing sign-in token.'));
+                return;
+            }
+            const result = await verifyMagicLink(token);
+            if (!result) {
+                reply.type('text/html').send(errorPage('This sign-in link is invalid, expired, or already used. Request a new one.'));
+                return;
+            }
+            reply.hijack();
+            try {
+                await provider.interactionFinished(req.raw, reply.raw, { login: { accountId: result.userId } });
+            }
+            catch (err) {
+                console.error('[magic-link] interactionFinished failed:', err);
+                if (!reply.raw.headersSent) {
+                    reply.raw.statusCode = 500;
+                    reply.raw.setHeader('Content-Type', 'text/html');
+                    reply.raw.end(errorPage('Could not complete sign-in. Please try again.'));
+                }
+            }
+        });
+        interactionScope.post('/interaction/:uid/consent', async (req, reply) => {
+            reply.hijack();
+            const interaction = await provider.interactionDetails(req.raw, reply.raw);
+            const AccountGrant = provider.Grant;
+            const grant = new AccountGrant({
+                accountId: interaction.session.accountId,
+                clientId: interaction.params.client_id,
+            });
+            grant.addOIDCScope(String(interaction.params.scope || 'openid email offline_access'));
+            const grantId = await grant.save();
+            await provider.interactionFinished(req.raw, reply.raw, { consent: { grantId } });
+        });
+    });
+    // ---------------------------------------------------------------------
+    // oidc-provider's own endpoints: discovery, authorize, token, DCR
+    // registration, jwks, userinfo, session end. Registered as a wildcard
+    // in its own scope (so the noop content-type parsers below only apply
+    // here) because oidc-provider needs to read the raw request body
+    // itself — a Fastify body parser would consume the stream first and
+    // leave nothing for it to read.
+    // ---------------------------------------------------------------------
+    app.register(async (oidcScope) => {
+        oidcScope.addContentTypeParser('application/x-www-form-urlencoded', (_req, _payload, done) => done(null));
+        oidcScope.addContentTypeParser('application/json', (_req, _payload, done) => done(null));
+        const oidcCallback = provider.callback();
+        const oidcHandler = async (req, reply) => {
+            reply.hijack();
+            await oidcCallback(req.raw, reply.raw);
+        };
+        // oidc-provider's own default route paths — a bare '*' wildcard would
+        // collide with @fastify/cors's own catch-all OPTIONS preflight route,
+        // so these are enumerated explicitly instead. /auth/:uid is the
+        // interaction-resume sub-path interactionFinished() redirects to
+        // after login/consent — easy to miss since it only appears mid-flow,
+        // not on the initial /auth request.
+        for (const path of ['/.well-known/openid-configuration', '/auth', '/auth/:uid', '/token', '/reg', '/jwks', '/me', '/session/end']) {
+            oidcScope.all(path, oidcHandler);
+        }
+    });
+    app.get('/.well-known/oauth-protected-resource', async (req, reply) => {
+        const resourceUrl = new URL('/mcp', issuer).toString();
+        reply.type('application/json').send({
+            resource: resourceUrl,
+            authorization_servers: [issuer]
+        });
+    });
+    // ---------------------------------------------------------------------
+    // Dashboard + REST API, now behind the cookie login above.
+    // ---------------------------------------------------------------------
+    async function requireDashboardSession(req, reply) {
+        const userId = await resolveDashboardSession(req.cookies[DASHBOARD_COOKIE_NAME]);
+        if (!userId) {
+            reply.redirect('/login');
+            return null;
+        }
+        return userId;
+    }
     // Standalone Web Dashboard
     app.get('/', async (req, reply) => {
+        const userId = await requireDashboardSession(req, reply);
+        if (!userId)
+            return;
         reply.type('text/html').send(getDashboardHtml());
     });
     // ChatGPT Plugin Manifest
@@ -54,15 +232,19 @@ export async function buildRestServer() {
             description_for_human: 'Autonomous Cross-Platform Financial Auditor & Reconciliation Engine.',
             description_for_model: 'Audit recognized revenue from billing (Chargebee) against Stripe net deposits and bank feeds. Flag variances over thresholds with matching fees, review anomalies, and draft balancing dual-entry journal adjustments for user approval.',
             auth: {
-                type: 'none'
+                type: 'oauth',
+                client_url: `${issuer}/auth`,
+                authorization_url: `${issuer}/auth`,
+                authorization_content_type: 'application/json',
+                scope: 'openid email offline_access'
             },
             api: {
                 type: 'openapi',
-                url: 'http://localhost:3333/docs/json'
+                url: `${issuer}/docs/json`
             },
             logo_url: 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=128&q=80',
             contact_email: 'support@ledgerguard.ai',
-            legal_info_url: 'http://localhost:3333/legal'
+            legal_info_url: `${issuer}/legal`
         });
     });
     // REST API Endpoints
@@ -78,7 +260,10 @@ export async function buildRestServer() {
                 }
             }
         }
-    }, async (req) => {
+    }, async (req, reply) => {
+        const userId = await requireDashboardSession(req, reply);
+        if (!userId)
+            return;
         const query = req.query;
         return reconciler.runAudit({
             period: query.period || '2026-09',
@@ -98,7 +283,10 @@ export async function buildRestServer() {
                 }
             }
         }
-    }, async (req) => {
+    }, async (req, reply) => {
+        const userId = await requireDashboardSession(req, reply);
+        if (!userId)
+            return;
         const query = req.query;
         const report = await reconciler.runAudit({
             period: query.period || '2026-09',
@@ -119,10 +307,14 @@ export async function buildRestServer() {
         schema: {
             description: 'List all dual-entry journal adjustments'
         }
-    }, async () => {
+    }, async (req, reply) => {
+        const userId = await requireDashboardSession(req, reply);
+        if (!userId)
+            return;
         return journalService.listAdjustments();
     });
-    // Health Check Endpoint
+    // Health Check Endpoint — intentionally NOT behind login, Railway's
+    // healthcheckPath needs to reach this unauthenticated.
     app.get('/api/v1/health', {
         schema: {
             description: 'Check service health and engine status'
@@ -170,7 +362,10 @@ export async function buildRestServer() {
                 }
             }
         }
-    }, async (req) => {
+    }, async (req, reply) => {
+        const userId = await requireDashboardSession(req, reply);
+        if (!userId)
+            return;
         const body = req.body || {};
         if (body.anomalyId) {
             return journalService.createDraftFromAnomaly(body.anomalyId, 'AI_AGENT_CHATGPT');
@@ -195,6 +390,9 @@ export async function buildRestServer() {
             }
         }
     }, async (req, reply) => {
+        const userId = await requireDashboardSession(req, reply);
+        if (!userId)
+            return;
         const body = req.body || {};
         if (!body.adjustmentId) {
             return reply.status(400).send({ success: false, error: 'adjustmentId is required' });
@@ -214,6 +412,9 @@ export async function buildRestServer() {
             }
         }
     }, async (req, reply) => {
+        const userId = await requireDashboardSession(req, reply);
+        if (!userId)
+            return;
         const body = req.body || {};
         if (!body.adjustmentId) {
             return reply.status(400).send({ success: false, error: 'adjustmentId is required' });
@@ -225,6 +426,9 @@ export async function buildRestServer() {
             description: 'Delete a draft journal adjustment (DRAFT status only)'
         }
     }, async (req, reply) => {
+        const userId = await requireDashboardSession(req, reply);
+        if (!userId)
+            return;
         const { id } = req.params;
         const result = await journalService.deleteAdjustment(id);
         if (!result.success) {
@@ -236,7 +440,10 @@ export async function buildRestServer() {
         schema: {
             description: 'Get the cryptographic GAAP audit trail and verify chain integrity'
         }
-    }, async () => {
+    }, async (req, reply) => {
+        const userId = await requireDashboardSession(req, reply);
+        if (!userId)
+            return;
         return {
             integrity: await auditTrail.verifyIntegrity(),
             trail: await auditTrail.getTrail()
@@ -252,14 +459,17 @@ export async function buildRestServer() {
                 }
             }
         }
-    }, async (req) => {
+    }, async (req, reply) => {
+        const userId = await requireDashboardSession(req, reply);
+        if (!userId)
+            return;
         const body = req.body || {};
         return backgroundCron.runOvernightReconciliation(body.period || '2026-09');
     });
-    // MCP Streamable HTTP Transport for Remote MCP Clients (the current MCP
-    // transport — the legacy HTTP+SSE transport this used to implement, with
-    // a separate GET /sse + POST /messages pair, is deprecated and isn't
-    // what the Claude plugin directory's `.mcp.json` expects).
+    // MCP Streamable HTTP Transport for Remote MCP Clients. Gated on a
+    // Bearer access token issued by our own oidc-provider (the 401 +
+    // WWW-Authenticate handshake below is what tells Claude/ChatGPT to
+    // start the OAuth flow at /.well-known/oauth-protected-resource).
     //
     // Stateless: a fresh MCP server + transport per request, per the SDK's
     // own documented pattern for a server like this one with no state to
@@ -269,6 +479,19 @@ export async function buildRestServer() {
     // /messages posts — stateless mode has no such shared mutable state to
     // race on.
     app.all('/mcp', async (req, reply) => {
+        const userId = await resolveUserIdFromBearer(provider, req.raw);
+        if (!userId) {
+            reply
+                .code(401)
+                .header('WWW-Authenticate', `Bearer resource_metadata="${new URL('/.well-known/oauth-protected-resource', issuer).toString()}"`)
+                .send({ error: 'unauthorized' });
+            return;
+        }
+        // Phase A resolves identity but doesn't yet scope data by it —
+        // that's Phase B (reconciler/journalService/auditTrail are still the
+        // global singletons imported above). userId is already threaded
+        // through here so Phase B only has to change what's done with it,
+        // not how it's obtained.
         reply.hijack();
         const mcpServer = createLedgerGuardMCPServer();
         const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
@@ -276,5 +499,32 @@ export async function buildRestServer() {
         await transport.handleRequest(req.raw, reply.raw, req.body);
     });
     return app;
+}
+async function readFormBody(req) {
+    const chunks = [];
+    for await (const chunk of req.raw) {
+        chunks.push(chunk);
+    }
+    const raw = Buffer.concat(chunks).toString('utf-8');
+    const params = new URLSearchParams(raw);
+    const map = new Map();
+    for (const [key, value] of params)
+        map.set(key, value);
+    return map;
+}
+function consentPage(uid, clientId) {
+    return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>Authorize — LedgerGuard</title>
+<style>
+  body { background:#090d16; color:#f8fafc; font-family:-apple-system,BlinkMacSystemFont,sans-serif; display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; }
+  .card { background:rgba(18,26,43,0.9); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:2.5rem; max-width:380px; width:90%; text-align:center; }
+  button { width:100%; padding:0.7rem; border-radius:8px; border:none; background:#3b82f6; color:white; font-weight:600; font-size:0.9rem; cursor:pointer; }
+  p { color:#94a3b8; font-size:0.85rem; line-height:1.5; }
+</style></head>
+<body><div class="card">
+  <h1>🛡️ Authorize access</h1>
+  <p><strong>${clientId.replace(/</g, '&lt;')}</strong> wants to access your LedgerGuard account — your connected payment gateways and reconciliation data.</p>
+  <form method="POST" action="/interaction/${uid}/consent"><button type="submit">Allow</button></form>
+</div></body></html>`;
 }
 //# sourceMappingURL=server-rest.js.map
