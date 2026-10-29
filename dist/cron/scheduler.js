@@ -1,5 +1,8 @@
 import { reconciler } from '../engine/reconciler.js';
 import { auditTrail } from '../engine/audit-trail.js';
+function fmtUsd(value) {
+    return value === null ? 'N/A (provider not connected)' : `$${value.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+}
 class BackgroundReconciliationCron {
     executionHistory = [];
     isRunning = false;
@@ -34,9 +37,9 @@ class BackgroundReconciliationCron {
                         type: 'section',
                         fields: [
                             { type: 'mrkdwn', text: `*Period:* ${period}` },
-                            { type: 'mrkdwn', text: `*Recognized Revenue:* $${report.summary.recognizedRevenue.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
-                            { type: 'mrkdwn', text: `*Stripe Net Deposits:* $${report.summary.stripeNetDeposits.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
-                            { type: 'mrkdwn', text: `*Total Variance:* $${report.summary.totalVariance.toLocaleString('en-US', { minimumFractionDigits: 2 })} (${report.summary.variancePercentage}%)` }
+                            { type: 'mrkdwn', text: `*Recognized Revenue:* ${fmtUsd(report.summary.recognizedRevenue)}` },
+                            { type: 'mrkdwn', text: `*Stripe Net Deposits:* ${fmtUsd(report.summary.stripeNetDeposits)}` },
+                            { type: 'mrkdwn', text: `*Total Variance:* ${fmtUsd(report.summary.totalVariance)} (${report.summary.variancePercentage ?? 'N/A'}%)` }
                         ]
                     },
                     {

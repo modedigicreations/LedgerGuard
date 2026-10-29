@@ -573,22 +573,37 @@ export function getDashboardHtml(): string {
   <div id="toast"></div>
 
   <script>
+    function fmtKpi(value) {
+      return value === null || value === undefined
+        ? 'Not connected'
+        : '$' + value.toLocaleString('en-US', {minimumFractionDigits: 2});
+    }
+
+    function currentPeriod() {
+      const now = new Date();
+      return now.getUTCFullYear() + '-' + String(now.getUTCMonth() + 1).padStart(2, '0');
+    }
+
     async function loadData() {
       try {
-        const res = await fetch('/api/v1/audit/variance?period=2026-09&minDiscrepancy=250');
+        const res = await fetch('/api/v1/audit/variance?period=' + currentPeriod() + '&minDiscrepancy=250');
         const data = await res.json();
-        
-        // Populate KPIs
-        document.getElementById('kpi-rev').innerText = '$' + data.summary.recognizedRevenue.toLocaleString('en-US', {minimumFractionDigits: 2});
-        document.getElementById('kpi-stripe').innerText = '$' + data.summary.stripeNetDeposits.toLocaleString('en-US', {minimumFractionDigits: 2});
-        document.getElementById('kpi-plaid').innerText = '$' + data.summary.plaidBankDeposits.toLocaleString('en-US', {minimumFractionDigits: 2});
+
+        // Populate KPIs — "Not connected" rather than a fabricated $0.00
+        // whenever a provider isn't configured (see data.providerStatus).
+        document.getElementById('kpi-rev').innerText = fmtKpi(data.summary.recognizedRevenue);
+        document.getElementById('kpi-stripe').innerText = fmtKpi(data.summary.stripeNetDeposits);
+        document.getElementById('kpi-plaid').innerText = fmtKpi(data.summary.plaidBankDeposits);
         document.getElementById('kpi-anom').innerText = data.metrics.materialDiscrepanciesCount + ' Anomalies';
-        
+
         const badge = document.getElementById('kpi-badge');
         badge.innerText = data.summary.reconciliationStatus.replace(/_/g, ' ');
         if (data.summary.reconciliationStatus === 'RECONCILED') {
           badge.className = 'status-badge status-ok';
           document.getElementById('kpi-anom').style.color = '#34d399';
+        } else if (data.summary.reconciliationStatus === 'INCOMPLETE_DATA') {
+          badge.className = 'status-badge status-drift';
+          document.getElementById('kpi-anom').style.color = '#94a3b8';
         } else {
           badge.className = 'status-badge status-drift';
           document.getElementById('kpi-anom').style.color = '#fb7185';
@@ -596,7 +611,9 @@ export function getDashboardHtml(): string {
 
         // Populate Anomalies
         const container = document.getElementById('anomalies-list');
-        if (data.anomalies.length === 0) {
+        if (data.summary.reconciliationStatus === 'INCOMPLETE_DATA') {
+          container.innerHTML = '<div style="padding:2.5rem 1rem; text-align:center; color:#94a3b8; font-weight:600; border:1px dashed rgba(148,163,184,0.3); border-radius:10px; background:rgba(148,163,184,0.05)">No connected data sources for this period yet — connect Stripe and Chargebee to see real numbers here.</div>';
+        } else if (data.anomalies.length === 0) {
           container.innerHTML = '<div style="padding:2.5rem 1rem; text-align:center; color:#34d399; font-weight:600; border:1px dashed rgba(16,185,129,0.3); border-radius:10px; background:rgba(16,185,129,0.05)">✓ All accounts, Stripe payouts, and Plaid bank deposits are 100% reconciled to QuickBooks ledger.</div>';
         } else {
           container.innerHTML = data.anomalies.map(a => \`

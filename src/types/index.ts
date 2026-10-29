@@ -105,28 +105,46 @@ export interface Anomaly {
   timestamp: string;
 }
 
+export type ProviderName = 'STRIPE' | 'CHARGEBEE' | 'PLAID' | 'QUICKBOOKS';
+export type ProviderStatus = 'CONNECTED' | 'NOT_CONFIGURED' | 'ERROR';
+
+export interface ProviderResult<T> {
+  status: ProviderStatus;
+  data: T[];
+  error?: string;
+}
+
+export interface DateRange {
+  start: Date;
+  end: Date;
+}
+
 export interface VarianceReport {
   reportId: string;
   period: string; // e.g. "2026-09" or "2026-09-01 to 2026-09-30"
   generatedAt: string;
   currency: Currency;
   materialityThreshold: number; // e.g. $250.00
+  // Per-provider connection state for this report. A metric fed by a
+  // provider that isn't CONNECTED is reported as null below — never
+  // silently backfilled with $0 or fabricated data.
+  providerStatus: Record<ProviderName, ProviderStatus>;
   summary: {
-    recognizedRevenue: number;
-    stripeGrossVolume: number;
-    stripeProcessingFees: number;
-    stripeNetDeposits: number;
-    plaidBankDeposits: number;
+    recognizedRevenue: number | null;
+    stripeGrossVolume: number | null;
+    stripeProcessingFees: number | null;
+    stripeNetDeposits: number | null;
+    plaidBankDeposits: number | null;
     // Net Debit - Credit summed across accounts 1010 (Cash) and 6030 (Fees)
     // on posted ERP entries for the period — NOT revenue. The mock ledger
     // here never posts to a revenue account (4010), so there's nothing
     // honestly callable "ERP posted revenue" to compute; this field used to
     // be named that despite summing a cash/expense total, which is not a
     // meaningful "revenue" figure under any accounting definition.
-    erpRecordedCashAndFees: number;
-    totalVariance: number;
-    variancePercentage: number;
-    reconciliationStatus: 'RECONCILED' | 'VARIANCE_DETECTED' | 'MATERIAL_DRIFT';
+    erpRecordedCashAndFees: number | null;
+    totalVariance: number | null;
+    variancePercentage: number | null;
+    reconciliationStatus: 'RECONCILED' | 'VARIANCE_DETECTED' | 'MATERIAL_DRIFT' | 'INCOMPLETE_DATA';
   };
   metrics: {
     totalTransactionsAudited: number;

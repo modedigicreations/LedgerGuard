@@ -89,22 +89,34 @@ export interface Anomaly {
     suggestedAction: string;
     timestamp: string;
 }
+export type ProviderName = 'STRIPE' | 'CHARGEBEE' | 'PLAID' | 'QUICKBOOKS';
+export type ProviderStatus = 'CONNECTED' | 'NOT_CONFIGURED' | 'ERROR';
+export interface ProviderResult<T> {
+    status: ProviderStatus;
+    data: T[];
+    error?: string;
+}
+export interface DateRange {
+    start: Date;
+    end: Date;
+}
 export interface VarianceReport {
     reportId: string;
     period: string;
     generatedAt: string;
     currency: Currency;
     materialityThreshold: number;
+    providerStatus: Record<ProviderName, ProviderStatus>;
     summary: {
-        recognizedRevenue: number;
-        stripeGrossVolume: number;
-        stripeProcessingFees: number;
-        stripeNetDeposits: number;
-        plaidBankDeposits: number;
-        erpRecordedCashAndFees: number;
-        totalVariance: number;
-        variancePercentage: number;
-        reconciliationStatus: 'RECONCILED' | 'VARIANCE_DETECTED' | 'MATERIAL_DRIFT';
+        recognizedRevenue: number | null;
+        stripeGrossVolume: number | null;
+        stripeProcessingFees: number | null;
+        stripeNetDeposits: number | null;
+        plaidBankDeposits: number | null;
+        erpRecordedCashAndFees: number | null;
+        totalVariance: number | null;
+        variancePercentage: number | null;
+        reconciliationStatus: 'RECONCILED' | 'VARIANCE_DETECTED' | 'MATERIAL_DRIFT' | 'INCOMPLETE_DATA';
     };
     metrics: {
         totalTransactionsAudited: number;
