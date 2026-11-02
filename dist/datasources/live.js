@@ -1,5 +1,6 @@
 import Stripe from 'stripe';
 import Chargebee from 'chargebee';
+import { getApiKeyFor } from '../auth/connected-accounts.js';
 function toUnixSeconds(d) {
     return Math.floor(d.getTime() / 1000);
 }
@@ -19,27 +20,38 @@ function mapChargebeeStatus(status) {
             return 'payment_due';
     }
 }
-// Real Stripe + Chargebee API calls, gated on the relevant env vars being
-// set. Plaid and QuickBooks aren't built yet (Phases 3-4) — both always
-// report NOT_CONFIGURED here rather than guessing.
+// Real Stripe + Chargebee API calls, using the calling user's OWN stored
+// credentials — never a server-wide key. Clients are built lazily (and
+// memoized for this instance's lifetime, which is one request) from
+// whatever that user has connected via the dashboard; nothing here is
+// ever read from process.env. Plaid and QuickBooks aren't built yet —
+// both always report NOT_CONFIGURED rather than guessing.
 export class LiveDataSource {
-    stripeClient;
-    chargebeeClient;
-    constructor() {
-        this.stripeClient = process.env.STRIPE_SECRET_KEY
-            ? new Stripe(process.env.STRIPE_SECRET_KEY)
-            : null;
-        this.chargebeeClient =
-            process.env.CHARGEBEE_SITE && process.env.CHARGEBEE_API_KEY
-                ? new Chargebee({ site: process.env.CHARGEBEE_SITE, apiKey: process.env.CHARGEBEE_API_KEY })
-                : null;
+    userId;
+    constructor(userId) {
+        this.userId = userId;
+    }
+    stripeClientPromise = null;
+    getStripeClient() {
+        if (!this.stripeClientPromise) {
+            this.stripeClientPromise = getApiKeyFor(this.userId, 'STRIPE').then((cred) => cred ? new Stripe(cred.apiKey) : null);
+        }
+        return this.stripeClientPromise;
+    }
+    chargebeeClientPromise = null;
+    getChargebeeClient() {
+        if (!this.chargebeeClientPromise) {
+            this.chargebeeClientPromise = getApiKeyFor(this.userId, 'CHARGEBEE').then((cred) => cred && cred.accountId ? new Chargebee({ site: cred.accountId, apiKey: cred.apiKey }) : null);
+        }
+        return this.chargebeeClientPromise;
     }
     async getStripeTransactions(range) {
-        if (!this.stripeClient)
+        const stripeClient = await this.getStripeClient();
+        if (!stripeClient)
             return { status: 'NOT_CONFIGURED', data: [] };
         try {
             const data = [];
-            const charges = this.stripeClient.charges.list({
+            const charges = stripeClient.charges.list({
                 created: { gte: toUnixSeconds(range.start), lte: toUnixSeconds(range.end) },
                 expand: ['data.balance_transaction'],
             });
@@ -74,11 +86,12 @@ export class LiveDataSource {
         }
     }
     async getStripePayouts(range) {
-        if (!this.stripeClient)
+        const stripeClient = await this.getStripeClient();
+        if (!stripeClient)
             return { status: 'NOT_CONFIGURED', data: [] };
         try {
             const data = [];
-            const payouts = this.stripeClient.payouts.list({
+            const payouts = stripeClient.payouts.list({
                 created: { gte: toUnixSeconds(range.start), lte: toUnixSeconds(range.end) },
                 expand: ['data.destination'],
             });
@@ -89,7 +102,7 @@ export class LiveDataSource {
                 let totalGross = 0;
                 let totalFees = 0;
                 let chargeCount = 0;
-                const items = this.stripeClient.balanceTransactions.list({ payout: payout.id });
+                const items = stripeClient.balanceTransactions.list({ payout: payout.id });
                 for await (const bt of items) {
                     if (bt.type === 'charge' || bt.type === 'payment') {
                         totalGross += bt.amount / 100;
@@ -121,13 +134,14 @@ export class LiveDataSource {
         }
     }
     async getChargebeeInvoices(range) {
-        if (!this.chargebeeClient)
+        const chargebeeClient = await this.getChargebeeClient();
+        if (!chargebeeClient)
             return { status: 'NOT_CONFIGURED', data: [] };
         try {
             const data = [];
             let offset;
             do {
-                const result = await this.chargebeeClient.invoice.list({
+                const result = await chargebeeClient.invoice.list({
                     date: { between: [toUnixSeconds(range.start), toUnixSeconds(range.end)] },
                     limit: 100,
                     offset,
@@ -159,12 +173,12 @@ export class LiveDataSource {
             return errorResult(err);
         }
     }
-    // Plaid Link isn't built yet (Phase 3) — there's no access token to
-    // fetch transactions with regardless of env vars being set.
+    // Plaid Link isn't built yet — there's no access token to fetch
+    // transactions with regardless of what's connected.
     async getPlaidTransactions(_range) {
         return { status: 'NOT_CONFIGURED', data: [] };
     }
-    // QuickBooks OAuth isn't built yet (Phase 4) — same reasoning.
+    // QuickBooks OAuth isn't built yet — same reasoning.
     async getQBOJournalEntries(_range) {
         return { status: 'NOT_CONFIGURED', data: [] };
     }

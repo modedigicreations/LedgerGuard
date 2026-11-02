@@ -19,7 +19,8 @@
     "start:http": "node dist/bin/run-http.js",
     "start:cron": "node dist/bin/run-cron.js",
     "generate:manifests": "tsx src/scripts/generate-manifests.ts",
-    "test": "tsx tests/test-reconciler.ts"
+    "test": "tsx tests/test-reconciler.ts",
+    "test:auth": "tsx tests/test-auth.ts"
   },
   "keywords": [
     "mcp",

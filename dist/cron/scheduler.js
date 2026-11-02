@@ -1,16 +1,16 @@
-import { reconciler } from '../engine/reconciler.js';
-import { auditTrail } from '../engine/audit-trail.js';
+import { getReconcilerFor } from '../engine/reconciler.js';
+import { getAuditTrailFor } from '../engine/audit-trail.js';
 function fmtUsd(value) {
     return value === null ? 'N/A (provider not connected)' : `$${value.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
 }
 class BackgroundReconciliationCron {
     executionHistory = [];
     isRunning = false;
-    async runOvernightReconciliation(period = '2026-09') {
+    async runOvernightReconciliation(userId, period = '2026-09') {
         const runAt = new Date().toISOString();
         const executionId = `cron_exec_${Date.now()}`;
         // Run reconciliation with default threshold ($250.00)
-        const report = await reconciler.runAudit({
+        const report = await getReconcilerFor(userId).runAudit({
             period,
             minDiscrepancy: 250.00,
             matchProcessorFees: true,
@@ -63,7 +63,7 @@ class BackgroundReconciliationCron {
                     }
                 ]
             };
-            await auditTrail.record('BACKGROUND_CRON', 'ANOMALY_FLAGGED', `Automated Slack alert dispatched to #finance-ops-alerts for ${report.anomalies.length} material anomalies.`, { executionId, anomaliesCount: report.anomalies.length, channel: '#finance-ops-alerts' });
+            await getAuditTrailFor(userId).record('BACKGROUND_CRON', 'ANOMALY_FLAGGED', `Automated Slack alert dispatched to #finance-ops-alerts for ${report.anomalies.length} material anomalies.`, { executionId, anomaliesCount: report.anomalies.length, channel: '#finance-ops-alerts' });
         }
         const result = {
             executionId,

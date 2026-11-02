@@ -5,9 +5,9 @@ import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createLedgerGuardMCPServer } from './server-mcp.js';
-import { reconciler } from './engine/reconciler.js';
-import { journalService } from './engine/journal-generator.js';
-import { auditTrail } from './engine/audit-trail.js';
+import { getReconcilerFor } from './engine/reconciler.js';
+import { getJournalServiceFor } from './engine/journal-generator.js';
+import { getAuditTrailFor } from './engine/audit-trail.js';
 import { backgroundCron } from './cron/scheduler.js';
 import { getDashboardHtml } from './dashboard/html.js';
 import { createOidcProvider } from './auth/oidc-provider.js';
@@ -15,6 +15,9 @@ import { resolveUserIdFromBearer } from './auth/authenticate.js';
 import { sendMagicLink, verifyMagicLink } from './auth/magic-link.js';
 import { createDashboardSession, resolveDashboardSession, destroyDashboardSession, DASHBOARD_COOKIE_NAME } from './auth/dashboard-session.js';
 import { emailFormPage, checkEmailPage, errorPage } from './auth/pages.js';
+import { setApiKeyFor, listConnectionsFor } from './auth/connected-accounts.js';
+import { connectFormPage } from './auth/connect-page.js';
+import { pool } from './db/pool.js';
 export async function buildRestServer() {
     const app = Fastify({
         logger: false
@@ -223,6 +226,49 @@ export async function buildRestServer() {
             return;
         reply.type('text/html').send(getDashboardHtml());
     });
+    // Connect-a-gateway dashboard pages — session-authenticated, the only
+    // place a user ever types their own Stripe/Chargebee API key. Never
+    // reachable from an MCP tool argument (see connect_payment_gateway in
+    // server-mcp.ts), only from a link that tool hands back.
+    app.register(async (connectScope) => {
+        connectScope.addContentTypeParser('application/x-www-form-urlencoded', (_req, _payload, done) => done(null));
+        connectScope.get('/connect/:provider', async (req, reply) => {
+            const userId = await requireDashboardSession(req, reply);
+            if (!userId)
+                return;
+            const provider = req.params.provider.toUpperCase();
+            if (provider !== 'STRIPE' && provider !== 'CHARGEBEE') {
+                reply.type('text/html').send(errorPage(`Unknown or not-yet-supported provider: ${provider}`));
+                return;
+            }
+            const connections = await listConnectionsFor(userId);
+            const existing = connections.find((c) => c.provider === provider);
+            reply.type('text/html').send(connectFormPage(provider, existing?.status || 'NOT_CONFIGURED'));
+        });
+        connectScope.post('/connect/:provider', async (req, reply) => {
+            const userId = await requireDashboardSession(req, reply);
+            if (!userId)
+                return;
+            const provider = req.params.provider.toUpperCase();
+            if (provider !== 'STRIPE' && provider !== 'CHARGEBEE') {
+                reply.type('text/html').send(errorPage(`Unknown or not-yet-supported provider: ${provider}`));
+                return;
+            }
+            const body = await readFormBody(req);
+            const apiKey = body.get('apiKey');
+            const accountId = body.get('accountId') || undefined;
+            if (!apiKey) {
+                reply.type('text/html').send(errorPage('An API key is required.'));
+                return;
+            }
+            if (provider === 'CHARGEBEE' && !accountId) {
+                reply.type('text/html').send(errorPage('Chargebee also needs your site name (e.g. "mycompany" from mycompany.chargebee.com).'));
+                return;
+            }
+            await setApiKeyFor(userId, provider, apiKey, accountId);
+            reply.redirect(`/connect/${provider.toLowerCase()}`);
+        });
+    });
     // ChatGPT Plugin Manifest
     app.get('/.well-known/ai-plugin.json', async (req, reply) => {
         reply.type('application/json').send({
@@ -265,7 +311,7 @@ export async function buildRestServer() {
         if (!userId)
             return;
         const query = req.query;
-        return reconciler.runAudit({
+        return getReconcilerFor(userId).runAudit({
             period: query.period || '2026-09',
             minDiscrepancy: query.minDiscrepancy !== undefined ? Number(query.minDiscrepancy) : 250.00,
             matchProcessorFees: query.matchProcessorFees !== false,
@@ -288,7 +334,7 @@ export async function buildRestServer() {
         if (!userId)
             return;
         const query = req.query;
-        const report = await reconciler.runAudit({
+        const report = await getReconcilerFor(userId).runAudit({
             period: query.period || '2026-09',
             minDiscrepancy: 0.00,
             actor: 'AI_AGENT_CHATGPT'
@@ -311,7 +357,7 @@ export async function buildRestServer() {
         const userId = await requireDashboardSession(req, reply);
         if (!userId)
             return;
-        return journalService.listAdjustments();
+        return getJournalServiceFor(userId).listAdjustments();
     });
     // Health Check Endpoint — intentionally NOT behind login, Railway's
     // healthcheckPath needs to reach this unauthenticated.
@@ -320,13 +366,16 @@ export async function buildRestServer() {
             description: 'Check service health and engine status'
         }
     }, async () => {
-        let auditTrailStatus = 'degraded';
+        // Audit trail integrity is now per-user (there's no single global
+        // chain to verify here) — this endpoint only needs to confirm the DB
+        // itself is reachable, which Railway's healthcheckPath relies on.
+        let dbStatus = 'degraded';
         try {
-            auditTrailStatus = (await auditTrail.verifyIntegrity()).isValid ? 'verified' : 'degraded';
+            await pool.query('SELECT 1');
+            dbStatus = 'connected';
         }
         catch {
-            // A DB hiccup shouldn't fail the health check itself — Railway's
-            // healthcheckPath only needs this endpoint to respond.
+            // A DB hiccup shouldn't fail the health check itself.
         }
         return {
             status: 'healthy',
@@ -334,7 +383,7 @@ export async function buildRestServer() {
             version: '1.0.0',
             timestamp: new Date().toISOString(),
             uptime: process.uptime(),
-            auditTrailStatus
+            dbStatus
         };
     });
     app.post('/api/v1/adjustments/draft', {
@@ -367,6 +416,7 @@ export async function buildRestServer() {
         if (!userId)
             return;
         const body = req.body || {};
+        const journalService = getJournalServiceFor(userId);
         if (body.anomalyId) {
             return journalService.createDraftFromAnomaly(body.anomalyId, 'AI_AGENT_CHATGPT');
         }
@@ -397,7 +447,7 @@ export async function buildRestServer() {
         if (!body.adjustmentId) {
             return reply.status(400).send({ success: false, error: 'adjustmentId is required' });
         }
-        return journalService.approveAdjustment(body.adjustmentId, body.approvedBy || 'Finance Lead');
+        return getJournalServiceFor(userId).approveAdjustment(body.adjustmentId, body.approvedBy || 'Finance Lead');
     });
     app.post('/api/v1/adjustments/commit', {
         schema: {
@@ -419,7 +469,7 @@ export async function buildRestServer() {
         if (!body.adjustmentId) {
             return reply.status(400).send({ success: false, error: 'adjustmentId is required' });
         }
-        return journalService.commitToERP(body.adjustmentId, body.targetERP || 'QUICKBOOKS');
+        return getJournalServiceFor(userId).commitToERP(body.adjustmentId, body.targetERP || 'QUICKBOOKS');
     });
     app.delete('/api/v1/adjustments/:id', {
         schema: {
@@ -430,7 +480,7 @@ export async function buildRestServer() {
         if (!userId)
             return;
         const { id } = req.params;
-        const result = await journalService.deleteAdjustment(id);
+        const result = await getJournalServiceFor(userId).deleteAdjustment(id);
         if (!result.success) {
             return reply.status(400).send(result);
         }
@@ -444,6 +494,7 @@ export async function buildRestServer() {
         const userId = await requireDashboardSession(req, reply);
         if (!userId)
             return;
+        const auditTrail = getAuditTrailFor(userId);
         return {
             integrity: await auditTrail.verifyIntegrity(),
             trail: await auditTrail.getTrail()
@@ -464,7 +515,7 @@ export async function buildRestServer() {
         if (!userId)
             return;
         const body = req.body || {};
-        return backgroundCron.runOvernightReconciliation(body.period || '2026-09');
+        return backgroundCron.runOvernightReconciliation(userId, body.period || '2026-09');
     });
     // MCP Streamable HTTP Transport for Remote MCP Clients. Gated on a
     // Bearer access token issued by our own oidc-provider (the 401 +
@@ -487,13 +538,8 @@ export async function buildRestServer() {
                 .send({ error: 'unauthorized' });
             return;
         }
-        // Phase A resolves identity but doesn't yet scope data by it —
-        // that's Phase B (reconciler/journalService/auditTrail are still the
-        // global singletons imported above). userId is already threaded
-        // through here so Phase B only has to change what's done with it,
-        // not how it's obtained.
         reply.hijack();
-        const mcpServer = createLedgerGuardMCPServer();
+        const mcpServer = createLedgerGuardMCPServer(userId);
         const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
         await mcpServer.connect(transport);
         await transport.handleRequest(req.raw, reply.raw, req.body);

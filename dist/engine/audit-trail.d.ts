@@ -1,8 +1,7 @@
 import { AuditTrailEntry } from '../types/index.js';
-declare class AuditTrailManager {
-    private genesisReady;
-    private ensureGenesis;
-    private appendEntry;
+export declare class AuditTrailManager {
+    private readonly userId;
+    constructor(userId: string);
     record(actor: AuditTrailEntry['actor'], action: AuditTrailEntry['action'], details: string, evidence: Record<string, unknown>): Promise<AuditTrailEntry>;
     getTrail(): Promise<AuditTrailEntry[]>;
     verifyIntegrity(): Promise<{
@@ -11,5 +10,4 @@ declare class AuditTrailManager {
         error?: string;
     }>;
 }
-export declare const auditTrail: AuditTrailManager;
-export {};
+export declare function getAuditTrailFor(userId: string): AuditTrailManager;

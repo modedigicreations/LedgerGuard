@@ -1,11 +1,13 @@
 import { MOCK_STRIPE_TRANSACTIONS, MOCK_STRIPE_PAYOUTS, MOCK_ERP_JOURNAL_ENTRIES } from '../data/mock-data.js';
-import { auditTrail } from './audit-trail.js';
+import { getAuditTrailFor } from './audit-trail.js';
 import { periodToDateRange } from '../datasources/types.js';
 import { MockDataSource } from '../datasources/mock.js';
 import { LiveDataSource } from '../datasources/live.js';
 export class ReconciliationEngine {
+    userId;
     dataSource;
-    constructor(dataSource) {
+    constructor(userId, dataSource) {
+        this.userId = userId;
         this.dataSource = dataSource;
     }
     async runAudit(options = {}) {
@@ -136,7 +138,7 @@ export class ReconciliationEngine {
             anomalies: filteredAnomalies
         };
         // Log to immutable GAAP audit trail
-        await auditTrail.record(actor, 'RECONCILIATION_RUN', `Audit completed for period ${period}. Found ${filteredAnomalies.length} material discrepancies (threshold: $${minDiscrepancy}). Status: ${reconciliationStatus}.`, {
+        await getAuditTrailFor(this.userId).record(actor, 'RECONCILIATION_RUN', `Audit completed for period ${period}. Found ${filteredAnomalies.length} material discrepancies (threshold: $${minDiscrepancy}). Status: ${reconciliationStatus}.`, {
             reportId: report.reportId,
             period,
             materialDiscrepancies: filteredAnomalies.length,
@@ -278,9 +280,13 @@ function detectMockAnomalies(period, minDiscrepancy, matchFees) {
     }
     return detectedAnomalies;
 }
-// LEDGERGUARD_DATA_MODE=live selects real provider APIs (Railway's
-// deployment sets this); anything else (including local dev with no env
-// vars at all) defaults to the fixed mock scenario so a fresh checkout
-// still runs without any credentials.
-export const reconciler = new ReconciliationEngine(process.env.LEDGERGUARD_DATA_MODE === 'live' ? new LiveDataSource() : new MockDataSource());
+// LEDGERGUARD_DATA_MODE=live selects real provider APIs, scoped to
+// whichever user this engine is built for (Railway's deployment sets
+// this); anything else (including local dev with no env vars at all)
+// defaults to the fixed mock scenario so a fresh checkout still runs
+// without any credentials — MockDataSource never touches userId at all.
+export function getReconcilerFor(userId) {
+    const dataSource = process.env.LEDGERGUARD_DATA_MODE === 'live' ? new LiveDataSource(userId) : new MockDataSource();
+    return new ReconciliationEngine(userId, dataSource);
+}
 //# sourceMappingURL=reconciler.js.map

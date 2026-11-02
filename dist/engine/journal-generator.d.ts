@@ -1,5 +1,7 @@
 import { JournalAdjustment, JournalAdjustmentRequest } from '../types/index.js';
-declare class JournalAdjustmentService {
+export declare class JournalAdjustmentService {
+    private readonly userId;
+    constructor(userId: string);
     createDraftFromAnomaly(anomalyId: string, actor?: 'AI_AGENT_CLAUDE' | 'AI_AGENT_CHATGPT' | 'USER_FINANCE_LEAD' | 'SYSTEM'): Promise<JournalAdjustment>;
     draftAdjustment(req: JournalAdjustmentRequest, actor?: 'AI_AGENT_CLAUDE' | 'AI_AGENT_CHATGPT' | 'USER_FINANCE_LEAD' | 'SYSTEM'): Promise<JournalAdjustment>;
     approveAdjustment(id: string, approvedBy?: string): Promise<{
@@ -20,6 +22,5 @@ declare class JournalAdjustmentService {
         error?: string;
     }>;
 }
-export declare const journalService: JournalAdjustmentService;
-export declare function seedDemoData(): Promise<void>;
-export {};
+export declare function getJournalServiceFor(userId: string): JournalAdjustmentService;
+export declare function seedDemoData(userId: string): Promise<void>;

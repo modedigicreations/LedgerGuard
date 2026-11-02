@@ -7,8 +7,9 @@ export interface AuditOptions {
     actor?: 'AI_AGENT_CLAUDE' | 'AI_AGENT_CHATGPT' | 'BACKGROUND_CRON' | 'USER_FINANCE_LEAD';
 }
 export declare class ReconciliationEngine {
+    private readonly userId;
     private readonly dataSource;
-    constructor(dataSource: FinancialDataSource);
+    constructor(userId: string, dataSource: FinancialDataSource);
     runAudit(options?: AuditOptions): Promise<VarianceReport>;
 }
-export declare const reconciler: ReconciliationEngine;
+export declare function getReconcilerFor(userId: string): ReconciliationEngine;

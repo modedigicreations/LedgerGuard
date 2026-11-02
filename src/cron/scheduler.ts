@@ -1,5 +1,5 @@
-import { reconciler } from '../engine/reconciler.js';
-import { auditTrail } from '../engine/audit-trail.js';
+import { getReconcilerFor } from '../engine/reconciler.js';
+import { getAuditTrailFor } from '../engine/audit-trail.js';
 import { VarianceReport } from '../types/index.js';
 
 function fmtUsd(value: number | null): string {
@@ -24,12 +24,12 @@ class BackgroundReconciliationCron {
   private executionHistory: CronExecutionResult[] = [];
   private isRunning: boolean = false;
 
-  public async runOvernightReconciliation(period: string = '2026-09'): Promise<CronExecutionResult> {
+  public async runOvernightReconciliation(userId: string, period: string = '2026-09'): Promise<CronExecutionResult> {
     const runAt = new Date().toISOString();
     const executionId = `cron_exec_${Date.now()}`;
 
     // Run reconciliation with default threshold ($250.00)
-    const report = await reconciler.runAudit({
+    const report = await getReconcilerFor(userId).runAudit({
       period,
       minDiscrepancy: 250.00,
       matchProcessorFees: true,
@@ -86,7 +86,7 @@ class BackgroundReconciliationCron {
         ]
       };
 
-      await auditTrail.record(
+      await getAuditTrailFor(userId).record(
         'BACKGROUND_CRON',
         'ANOMALY_FLAGGED',
         `Automated Slack alert dispatched to #finance-ops-alerts for ${report.anomalies.length} material anomalies.`,

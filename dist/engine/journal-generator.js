@@ -1,5 +1,5 @@
 import { MOCK_ERP_JOURNAL_ENTRIES } from '../data/mock-data.js';
-import { auditTrail } from './audit-trail.js';
+import { getAuditTrailFor } from './audit-trail.js';
 import { pool } from '../db/pool.js';
 function rowToAdjustment(row) {
     return {
@@ -21,9 +21,13 @@ function rowToAdjustment(row) {
         erpPostedId: row.erp_posted_id ?? undefined,
     };
 }
-class JournalAdjustmentService {
+export class JournalAdjustmentService {
+    userId;
+    constructor(userId) {
+        this.userId = userId;
+    }
     async createDraftFromAnomaly(anomalyId, actor = 'AI_AGENT_CLAUDE') {
-        const { rows } = await pool.query(`SELECT * FROM journal_adjustments WHERE anomaly_id = $1 AND status IN ('DRAFT', 'APPROVED') LIMIT 1`, [anomalyId]);
+        const { rows } = await pool.query(`SELECT * FROM journal_adjustments WHERE user_id = $1 AND anomaly_id = $2 AND status IN ('DRAFT', 'APPROVED') LIMIT 1`, [this.userId, anomalyId]);
         if (rows.length > 0)
             return rowToAdjustment(rows[0]);
         let lines = [];
@@ -102,9 +106,9 @@ class JournalAdjustmentService {
         const date = req.date || new Date().toISOString().split('T')[0];
         const createdAt = new Date().toISOString();
         await pool.query(`INSERT INTO journal_adjustments
-			 (id, adjustment_number, anomaly_id, reference, date, memo, lines, total_debit, total_credit, is_balanced, status, target_erp, created_at)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'DRAFT', 'QUICKBOOKS', $11)`, [id, adjustmentNumber, req.anomalyId ?? null, req.reference, date, req.memo, JSON.stringify(req.lines), totalDebit, totalCredit, isBalanced, createdAt]);
-        await auditTrail.record(actor, 'JOURNAL_DRAFTED', `Dual-entry adjustment ${adjustmentNumber} drafted ($${totalDebit.toFixed(2)} Debits / $${totalCredit.toFixed(2)} Credits). Balanced: ${isBalanced}.`, { adjustmentId: id, adjustmentNumber, isBalanced, totalDebit, linesCount: req.lines.length });
+			 (id, user_id, adjustment_number, anomaly_id, reference, date, memo, lines, total_debit, total_credit, is_balanced, status, target_erp, created_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'DRAFT', 'QUICKBOOKS', $12)`, [id, this.userId, adjustmentNumber, req.anomalyId ?? null, req.reference, date, req.memo, JSON.stringify(req.lines), totalDebit, totalCredit, isBalanced, createdAt]);
+        await getAuditTrailFor(this.userId).record(actor, 'JOURNAL_DRAFTED', `Dual-entry adjustment ${adjustmentNumber} drafted ($${totalDebit.toFixed(2)} Debits / $${totalCredit.toFixed(2)} Credits). Balanced: ${isBalanced}.`, { adjustmentId: id, adjustmentNumber, isBalanced, totalDebit, linesCount: req.lines.length });
         return {
             id,
             adjustmentNumber,
@@ -122,7 +126,7 @@ class JournalAdjustmentService {
         };
     }
     async approveAdjustment(id, approvedBy = 'Fractional CFO / Finance Lead') {
-        const { rows } = await pool.query('SELECT * FROM journal_adjustments WHERE id = $1', [id]);
+        const { rows } = await pool.query('SELECT * FROM journal_adjustments WHERE id = $1 AND user_id = $2', [id, this.userId]);
         if (rows.length === 0) {
             return { success: false, error: `Adjustment ${id} not found.` };
         }
@@ -134,12 +138,12 @@ class JournalAdjustmentService {
             };
         }
         const approvedAt = new Date().toISOString();
-        await pool.query(`UPDATE journal_adjustments SET status = 'APPROVED', approved_at = $1, approved_by = $2 WHERE id = $3`, [approvedAt, approvedBy, id]);
-        await auditTrail.record('USER_FINANCE_LEAD', 'JOURNAL_APPROVED', `Journal adjustment ${adj.adjustmentNumber} approved by ${approvedBy}. Ready for direct ERP bi-directional sync.`, { adjustmentId: id, adjustmentNumber: adj.adjustmentNumber, approvedBy, targetERP: adj.targetERP });
+        await pool.query(`UPDATE journal_adjustments SET status = 'APPROVED', approved_at = $1, approved_by = $2 WHERE id = $3 AND user_id = $4`, [approvedAt, approvedBy, id, this.userId]);
+        await getAuditTrailFor(this.userId).record('USER_FINANCE_LEAD', 'JOURNAL_APPROVED', `Journal adjustment ${adj.adjustmentNumber} approved by ${approvedBy}. Ready for direct ERP bi-directional sync.`, { adjustmentId: id, adjustmentNumber: adj.adjustmentNumber, approvedBy, targetERP: adj.targetERP });
         return { success: true, adjustment: { ...adj, status: 'APPROVED', approvedAt, approvedBy } };
     }
     async commitToERP(id, targetERP = 'QUICKBOOKS') {
-        const { rows } = await pool.query('SELECT * FROM journal_adjustments WHERE id = $1', [id]);
+        const { rows } = await pool.query('SELECT * FROM journal_adjustments WHERE id = $1 AND user_id = $2', [id, this.userId]);
         if (rows.length === 0) {
             return { success: false, error: `Adjustment ${id} not found.` };
         }
@@ -150,12 +154,13 @@ class JournalAdjustmentService {
                 error: `Adjustment ${id} must be in APPROVED status before committing to ${targetERP}. Current status: ${adj.status}.`,
             };
         }
-        // TODO(Phase 4): replace with a real QuickBooks Online JournalEntry
-        // post. Until then this fakes the sync the same way the in-memory
-        // version did, including mutating the mock ERP ledger the
-        // reconciler still reads from (Phase 1 replaces that data source).
+        // TODO(Phase QBO): replace with a real QuickBooks Online JournalEntry
+        // post, scoped to this user's connected QBO account. Until then this
+        // fakes the sync, including mutating the shared mock ERP ledger —
+        // harmless since that ledger only ever feeds the mock-data-only
+        // anomaly detector (reconciler.ts), never per-user live data.
         const erpPostedId = `${targetERP.substring(0, 2)}_JE_${Date.now()}`;
-        await pool.query(`UPDATE journal_adjustments SET status = 'POSTED', target_erp = $1, erp_posted_id = $2 WHERE id = $3`, [targetERP, erpPostedId, id]);
+        await pool.query(`UPDATE journal_adjustments SET status = 'POSTED', target_erp = $1, erp_posted_id = $2 WHERE id = $3 AND user_id = $4`, [targetERP, erpPostedId, id, this.userId]);
         MOCK_ERP_JOURNAL_ENTRIES.push({
             id: erpPostedId,
             entryNumber: adj.adjustmentNumber,
@@ -167,22 +172,22 @@ class JournalAdjustmentService {
             externalReference: adj.reference,
             createdAt: new Date().toISOString(),
         });
-        await auditTrail.record('SYSTEM', 'ERP_SYNCED', `Journal adjustment ${adj.adjustmentNumber} successfully synchronized with ${targetERP} as ${erpPostedId}.`, { adjustmentId: id, adjustmentNumber: adj.adjustmentNumber, targetERP, erpPostedId });
+        await getAuditTrailFor(this.userId).record('SYSTEM', 'ERP_SYNCED', `Journal adjustment ${adj.adjustmentNumber} successfully synchronized with ${targetERP} as ${erpPostedId}.`, { adjustmentId: id, adjustmentNumber: adj.adjustmentNumber, targetERP, erpPostedId });
         return { success: true, adjustment: { ...adj, status: 'POSTED', targetERP, erpPostedId }, erpPostedId };
     }
     async getAdjustment(id) {
-        const { rows } = await pool.query('SELECT * FROM journal_adjustments WHERE id = $1', [id]);
+        const { rows } = await pool.query('SELECT * FROM journal_adjustments WHERE id = $1 AND user_id = $2', [id, this.userId]);
         return rows.length > 0 ? rowToAdjustment(rows[0]) : undefined;
     }
     async listAdjustments() {
-        const { rows } = await pool.query('SELECT * FROM journal_adjustments ORDER BY created_at ASC');
+        const { rows } = await pool.query('SELECT * FROM journal_adjustments WHERE user_id = $1 ORDER BY created_at ASC', [this.userId]);
         return rows.map(rowToAdjustment);
     }
     // Only a DRAFT can be deleted — once something is APPROVED or POSTED,
     // removing it would mean the audit trail references an adjustment that
     // no longer exists, which defeats the point of keeping that trail.
     async deleteAdjustment(id) {
-        const { rows } = await pool.query('SELECT * FROM journal_adjustments WHERE id = $1', [id]);
+        const { rows } = await pool.query('SELECT * FROM journal_adjustments WHERE id = $1 AND user_id = $2', [id, this.userId]);
         if (rows.length === 0) {
             return { success: false, error: `Adjustment ${id} not found.` };
         }
@@ -190,17 +195,18 @@ class JournalAdjustmentService {
         if (adj.status !== 'DRAFT') {
             return { success: false, error: `Only a DRAFT adjustment can be deleted. Current status: ${adj.status}.` };
         }
-        await pool.query('DELETE FROM journal_adjustments WHERE id = $1', [id]);
-        await auditTrail.record('USER_FINANCE_LEAD', 'JOURNAL_REJECTED', `Draft adjustment ${adj.adjustmentNumber} deleted before approval.`, { adjustmentId: id, adjustmentNumber: adj.adjustmentNumber });
+        await pool.query('DELETE FROM journal_adjustments WHERE id = $1 AND user_id = $2', [id, this.userId]);
+        await getAuditTrailFor(this.userId).record('USER_FINANCE_LEAD', 'JOURNAL_REJECTED', `Draft adjustment ${adj.adjustmentNumber} deleted before approval.`, { adjustmentId: id, adjustmentNumber: adj.adjustmentNumber });
         return { success: true };
     }
 }
-export const journalService = new JournalAdjustmentService();
+export function getJournalServiceFor(userId) {
+    return new JournalAdjustmentService(userId);
+}
 // Seeds one drafted adjustment for the demo's known fee-mismatch anomaly,
-// so the dashboard doesn't start out empty. Call once at server boot,
-// after migrations — not from the constructor, since seeding needs the DB
-// and constructors can't await.
-export async function seedDemoData() {
-    await journalService.createDraftFromAnomaly('anom_fee_mismatch_001', 'SYSTEM');
+// so a mock-mode dashboard doesn't start out empty. Only ever called for
+// mock-mode local/dev use, never in production (see run-http.ts).
+export async function seedDemoData(userId) {
+    await getJournalServiceFor(userId).createDraftFromAnomaly('anom_fee_mismatch_001', 'SYSTEM');
 }
 //# sourceMappingURL=journal-generator.js.map

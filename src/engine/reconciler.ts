@@ -9,7 +9,7 @@ import {
   MOCK_STRIPE_PAYOUTS,
   MOCK_ERP_JOURNAL_ENTRIES
 } from '../data/mock-data.js';
-import { auditTrail } from './audit-trail.js';
+import { getAuditTrailFor } from './audit-trail.js';
 import { FinancialDataSource, periodToDateRange } from '../datasources/types.js';
 import { MockDataSource } from '../datasources/mock.js';
 import { LiveDataSource } from '../datasources/live.js';
@@ -22,7 +22,7 @@ export interface AuditOptions {
 }
 
 export class ReconciliationEngine {
-  constructor(private readonly dataSource: FinancialDataSource) {}
+  constructor(private readonly userId: string, private readonly dataSource: FinancialDataSource) {}
 
   public async runAudit(options: AuditOptions = {}): Promise<VarianceReport> {
     const period = options.period || '2026-09';
@@ -161,7 +161,7 @@ export class ReconciliationEngine {
     };
 
     // Log to immutable GAAP audit trail
-    await auditTrail.record(
+    await getAuditTrailFor(this.userId).record(
       actor,
       'RECONCILIATION_RUN',
       `Audit completed for period ${period}. Found ${filteredAnomalies.length} material discrepancies (threshold: $${minDiscrepancy}). Status: ${reconciliationStatus}.`,
@@ -324,10 +324,13 @@ function detectMockAnomalies(period: string, minDiscrepancy: number, matchFees: 
   return detectedAnomalies;
 }
 
-// LEDGERGUARD_DATA_MODE=live selects real provider APIs (Railway's
-// deployment sets this); anything else (including local dev with no env
-// vars at all) defaults to the fixed mock scenario so a fresh checkout
-// still runs without any credentials.
-export const reconciler = new ReconciliationEngine(
-  process.env.LEDGERGUARD_DATA_MODE === 'live' ? new LiveDataSource() : new MockDataSource()
-);
+// LEDGERGUARD_DATA_MODE=live selects real provider APIs, scoped to
+// whichever user this engine is built for (Railway's deployment sets
+// this); anything else (including local dev with no env vars at all)
+// defaults to the fixed mock scenario so a fresh checkout still runs
+// without any credentials — MockDataSource never touches userId at all.
+export function getReconcilerFor(userId: string): ReconciliationEngine {
+  const dataSource =
+    process.env.LEDGERGUARD_DATA_MODE === 'live' ? new LiveDataSource(userId) : new MockDataSource();
+  return new ReconciliationEngine(userId, dataSource);
+}

@@ -1,2 +1,2 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-export declare function createLedgerGuardMCPServer(): Server;
+export declare function createLedgerGuardMCPServer(userId: string): Server;

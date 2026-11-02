@@ -1,14 +1,30 @@
-import { reconciler } from '../src/engine/reconciler.js';
-import { journalService } from '../src/engine/journal-generator.js';
-import { auditTrail } from '../src/engine/audit-trail.js';
+import { getReconcilerFor } from '../src/engine/reconciler.js';
+import { getJournalServiceFor } from '../src/engine/journal-generator.js';
+import { getAuditTrailFor } from '../src/engine/audit-trail.js';
 import { backgroundCron } from '../src/cron/scheduler.js';
 import { runMigrations } from '../src/db/migrate.js';
 import { pool } from '../src/db/pool.js';
+
+const TEST_USER_EMAIL = 'test-reconciler@ledgerguard.internal';
+
+async function getTestUserId(): Promise<string> {
+  const { rows } = await pool.query(
+    `INSERT INTO users (email) VALUES ($1)
+     ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
+     RETURNING id`,
+    [TEST_USER_EMAIL],
+  );
+  return rows[0].id;
+}
 
 async function runTests() {
   console.log('🧪 Starting LedgerGuard Verification Test Suite...\n');
 
   await runMigrations();
+  const TEST_USER_ID = await getTestUserId();
+  const reconciler = getReconcilerFor(TEST_USER_ID);
+  const journalService = getJournalServiceFor(TEST_USER_ID);
+  const auditTrail = getAuditTrailFor(TEST_USER_ID);
 
   // Test 1: Run September Audit with $250 Materiality Threshold
   console.log('Test 1: Audit September Revenue vs Stripe Net Deposits (Threshold > $250)');
@@ -85,7 +101,7 @@ async function runTests() {
 
   // Test 7: Background Cron & Slack Alert Dispatching
   console.log('\nTest 7: Overnight Background Cron & Slack Notification Dispatch');
-  const cronRes = await backgroundCron.runOvernightReconciliation('2026-09');
+  const cronRes = await backgroundCron.runOvernightReconciliation(TEST_USER_ID, '2026-09');
   console.log(`  ✓ Cron Status: ${cronRes.status}`);
   console.log(`  ✓ Slack Alert Dispatched: ${cronRes.slackAlertDispatched}`);
   if (!cronRes.slackAlertDispatched) {

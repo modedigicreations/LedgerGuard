@@ -1,10 +1,13 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema, ListResourcesRequestSchema, ReadResourceRequestSchema, ListPromptsRequestSchema, GetPromptRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { reconciler } from './engine/reconciler.js';
-import { journalService } from './engine/journal-generator.js';
-import { auditTrail } from './engine/audit-trail.js';
+import { getReconcilerFor } from './engine/reconciler.js';
+import { getJournalServiceFor } from './engine/journal-generator.js';
+import { getAuditTrailFor } from './engine/audit-trail.js';
 import { backgroundCron } from './cron/scheduler.js';
-export function createLedgerGuardMCPServer() {
+export function createLedgerGuardMCPServer(userId) {
+    const reconciler = getReconcilerFor(userId);
+    const journalService = getJournalServiceFor(userId);
+    const auditTrail = getAuditTrailFor(userId);
     const server = new Server({
         name: 'ledgerguard-mcp',
         version: '1.0.0'
@@ -60,6 +63,21 @@ export function createLedgerGuardMCPServer() {
                                 enum: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
                             }
                         }
+                    }
+                },
+                {
+                    name: 'connect_payment_gateway',
+                    description: "Get a link to connect your own Stripe or Chargebee account to LedgerGuard. Only you can see your credentials — this tool never asks for or accepts an API key directly (tool arguments aren't a safe place for secrets), it just returns a link to LedgerGuard's own dashboard where you enter it yourself.",
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            provider: {
+                                type: 'string',
+                                description: 'Which provider to connect',
+                                enum: ['STRIPE', 'CHARGEBEE']
+                            }
+                        },
+                        required: ['provider']
                     }
                 },
                 {
@@ -210,6 +228,19 @@ export function createLedgerGuardMCPServer() {
                     ]
                 };
             }
+            if (name === 'connect_payment_gateway') {
+                const provider = args?.provider || '';
+                const issuer = process.env.LEDGERGUARD_OIDC_ISSUER || 'http://localhost:3333';
+                const url = `${issuer}/connect/${provider.toLowerCase()}`;
+                return {
+                    content: [
+                        {
+                            type: 'text',
+                            text: `Open this link in your browser to connect your ${provider} account: ${url}\n\nIf you're not already signed in, it'll ask you to sign in with the same email first. Your API key is entered there, directly in LedgerGuard's own dashboard — never shared in this conversation.`
+                        }
+                    ]
+                };
+            }
             if (name === 'draft_journal_adjustment') {
                 const anomalyId = args?.anomalyId;
                 let adjustment;
@@ -278,7 +309,7 @@ export function createLedgerGuardMCPServer() {
             }
             if (name === 'trigger_reconciliation_batch') {
                 const period = args?.period || '2026-09';
-                const result = await backgroundCron.runOvernightReconciliation(period);
+                const result = await backgroundCron.runOvernightReconciliation(userId, period);
                 return {
                     content: [
                         {

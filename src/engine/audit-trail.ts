@@ -39,47 +39,31 @@ function rowToEntry(row: {
 	};
 }
 
-class AuditTrailManager {
-	// Memoized per-process so concurrent requests on a fresh deploy don't
-	// race to insert the genesis entry twice. With numReplicas: 1 (today's
-	// deploy) that's sufficient; scaling to multiple replicas would need a
-	// real advisory lock here instead.
-	private genesisReady: Promise<void> | null = null;
+// One independent, immutable hash chain per user — a compliance audit
+// trail should be "here is this customer's complete, verifiable chain,"
+// not entries from strangers interleaved together.
+export class AuditTrailManager {
+	constructor(private readonly userId: string) {}
 
-	private ensureGenesis(): Promise<void> {
-		if (!this.genesisReady) {
-			this.genesisReady = (async () => {
-				const { rows } = await pool.query('SELECT 1 FROM audit_trail_entries LIMIT 1');
-				if (rows.length === 0) {
-					await this.appendEntry(
-						'SYSTEM',
-						'RECONCILIATION_RUN',
-						'LedgerGuard Genesis: Autonomous Reconciliation & Audit Engine Initialized',
-						{ version: '1.0.0', engine: 'LedgerGuard Core', gaapStandard: 'ASC-606' },
-					);
-				}
-			})();
-		}
-		return this.genesisReady;
-	}
-
-	private async appendEntry(
+	public async record(
 		actor: AuditTrailEntry['actor'],
 		action: AuditTrailEntry['action'],
 		details: string,
 		evidence: Record<string, unknown>,
 	): Promise<AuditTrailEntry> {
-		// Serialized via a row lock, not a SERIAL column: sequence and
-		// previousHash both depend on "the last row so far," so two
-		// concurrent appends must not interleave between reading that and
-		// writing their own row — that would silently break the hash chain.
+		// pg_advisory_xact_lock serializes concurrent appends for this one
+		// user without a separate lock-row table (and without the bootstrap
+		// problem a per-user lock row would have for a brand-new user's very
+		// first entry — there'd be nothing to lock yet). Released
+		// automatically when the transaction ends.
 		const client = await pool.connect();
 		try {
 			await client.query('BEGIN');
-			await client.query('SELECT id FROM audit_trail_lock FOR UPDATE');
+			await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [this.userId]);
 
 			const { rows: lastRows } = await client.query(
-				'SELECT sequence, current_hash FROM audit_trail_entries ORDER BY sequence DESC LIMIT 1',
+				'SELECT sequence, current_hash FROM audit_trail_entries WHERE user_id = $1 ORDER BY sequence DESC LIMIT 1',
+				[this.userId],
 			);
 			const sequence = lastRows.length > 0 ? Number(lastRows[0].sequence) + 1 : 1;
 			const previousHash = lastRows.length > 0 ? lastRows[0].current_hash : GENESIS_PREVIOUS_HASH;
@@ -87,9 +71,9 @@ class AuditTrailManager {
 			const currentHash = computeHash(sequence, timestamp, actor, action, details, evidence, previousHash);
 
 			await client.query(
-				`INSERT INTO audit_trail_entries (sequence, timestamp, action, actor, details, evidence, previous_hash, current_hash)
-				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-				[sequence, timestamp, action, actor, details, JSON.stringify(evidence), previousHash, currentHash],
+				`INSERT INTO audit_trail_entries (user_id, sequence, timestamp, action, actor, details, evidence, previous_hash, current_hash)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+				[this.userId, sequence, timestamp, action, actor, details, JSON.stringify(evidence), previousHash, currentHash],
 			);
 			await client.query('COMMIT');
 
@@ -102,19 +86,11 @@ class AuditTrailManager {
 		}
 	}
 
-	public async record(
-		actor: AuditTrailEntry['actor'],
-		action: AuditTrailEntry['action'],
-		details: string,
-		evidence: Record<string, unknown>,
-	): Promise<AuditTrailEntry> {
-		await this.ensureGenesis();
-		return this.appendEntry(actor, action, details, evidence);
-	}
-
 	public async getTrail(): Promise<AuditTrailEntry[]> {
-		await this.ensureGenesis();
-		const { rows } = await pool.query('SELECT * FROM audit_trail_entries ORDER BY sequence ASC');
+		const { rows } = await pool.query(
+			'SELECT * FROM audit_trail_entries WHERE user_id = $1 ORDER BY sequence ASC',
+			[this.userId],
+		);
 		return rows.map(rowToEntry);
 	}
 
@@ -156,4 +132,6 @@ class AuditTrailManager {
 	}
 }
 
-export const auditTrail = new AuditTrailManager();
+export function getAuditTrailFor(userId: string): AuditTrailManager {
+	return new AuditTrailManager(userId);
+}
