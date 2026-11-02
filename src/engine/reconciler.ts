@@ -1,6 +1,11 @@
 import {
   VarianceReport,
   Anomaly,
+  AnomalySeverity,
+  ChargebeeInvoice,
+  GatewayTransaction,
+  GatewayPayout,
+  ProviderResult,
   ProviderName,
   ProviderStatus
 } from '../types/index.js';
@@ -122,7 +127,7 @@ export class ReconciliationEngine {
     // project was about preventing.
     const detectedAnomalies: Anomaly[] = this.dataSource instanceof MockDataSource
       ? detectMockAnomalies(period, minDiscrepancy, matchFees)
-      : [];
+      : detectLiveAnomalies(chargebeeResult, stripeTxResult, stripePayoutResult, period);
 
     // Filter anomalies by minDiscrepancy
     const filteredAnomalies = detectedAnomalies.filter(a => a.discrepancyAmount >= minDiscrepancy);
@@ -336,6 +341,156 @@ function detectMockAnomalies(period: string, minDiscrepancy: number, matchFees: 
   }
 
   return detectedAnomalies;
+}
+
+function fmtUsd(value: number): string {
+  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+}
+
+// Fixed dollar-magnitude bands, not scaled to minDiscrepancy (a
+// user-configurable filter threshold, not a severity scale) — a $6,000
+// discrepancy is CRITICAL regardless of whether the audit was run with a
+// $50 or $500 materiality threshold.
+function severityFor(amount: number): AnomalySeverity {
+  const abs = Math.abs(amount);
+  if (abs >= 5000) return 'CRITICAL';
+  if (abs >= 1000) return 'HIGH';
+  if (abs >= 250) return 'MEDIUM';
+  return 'LOW';
+}
+
+// Real cross-provider anomaly detection, replacing the fixed September
+// 2026 demo scenario above for any actual connected account. Scoped
+// deliberately to the Chargebee+Stripe pairing only — that's the one
+// pairing this report's summary math already treats as USD-denominated
+// (see VarianceReport.currency's comment); PayStack/Paddle/Braintree
+// aren't folded in here for the same reason they aren't folded into the
+// dollar totals. Returns nothing when either side isn't actually
+// connected — there's nothing honest to cross-reference otherwise.
+export function detectLiveAnomalies(
+  chargebeeResult: ProviderResult<ChargebeeInvoice>,
+  stripeTxResult: ProviderResult<GatewayTransaction>,
+  stripePayoutResult: ProviderResult<GatewayPayout>,
+  period: string,
+): Anomaly[] {
+  if (chargebeeResult.status !== 'CONNECTED' || stripeTxResult.status !== 'CONNECTED') {
+    return [];
+  }
+
+  const anomalies: Anomaly[] = [];
+  const invoices = chargebeeResult.data;
+  const transactions = stripeTxResult.data;
+  const txById = new Map(transactions.map((tx) => [tx.id, tx]));
+  const matchedTxIds = new Set<string>();
+
+  for (const invoice of invoices) {
+    if (!invoice.stripeChargeId) continue; // nothing on the Stripe side to cross-check against
+    const tx = txById.get(invoice.stripeChargeId);
+
+    if (!tx) {
+      // Chargebee claims this invoice was paid via a specific Stripe
+      // charge, but that charge doesn't appear anywhere in Stripe's own
+      // data for this period — could be a wrong/stale charge ID, or the
+      // charge happened outside the requested date range.
+      anomalies.push({
+        id: `anom_missing_stripe_${invoice.id}`,
+        type: 'MISSING_LEDGER_ENTRY',
+        severity: severityFor(invoice.totalRecognizedRevenue),
+        title: 'Chargebee invoice references a Stripe charge not found in this period',
+        description: `Invoice ${invoice.id} (${fmtUsd(invoice.totalRecognizedRevenue)}) references Stripe charge ${invoice.stripeChargeId}, but no matching transaction was found in Stripe's data for ${period}.`,
+        discrepancyAmount: invoice.totalRecognizedRevenue,
+        confidenceScore: 0.85,
+        period,
+        affectedEntities: { invoiceId: invoice.id, stripeChargeId: invoice.stripeChargeId },
+        suggestedAction: 'Verify the Stripe charge ID is correct and occurred within this period, or confirm the invoice was actually paid.',
+        timestamp: new Date().toISOString(),
+      });
+      continue;
+    }
+
+    matchedTxIds.add(tx.id);
+    const discrepancy = Number(Math.abs(invoice.totalRecognizedRevenue - tx.amountGross).toFixed(2));
+    if (discrepancy > 0.01) {
+      anomalies.push({
+        id: `anom_fee_mismatch_${invoice.id}`,
+        type: 'FEE_MISMATCH',
+        severity: severityFor(discrepancy),
+        title: "Recognized revenue doesn't match the matching Stripe charge",
+        description: `Invoice ${invoice.id} recognized ${fmtUsd(invoice.totalRecognizedRevenue)}, but the matching Stripe charge ${tx.id} was for ${fmtUsd(tx.amountGross)} — a difference of ${fmtUsd(discrepancy)}.`,
+        discrepancyAmount: discrepancy,
+        matchedProcessorFee: tx.amountFee,
+        confidenceScore: 0.9,
+        period,
+        affectedEntities: { invoiceId: invoice.id, stripeChargeId: tx.id },
+        suggestedAction: 'Review for a partial refund, currency conversion, or data entry discrepancy between Chargebee and Stripe.',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (tx.type === 'dispute') {
+      anomalies.push({
+        id: `anom_chargeback_${tx.id}`,
+        type: 'UNRECORDED_CHARGEBACK',
+        severity: 'CRITICAL',
+        title: 'Disputed Stripe charge still recognized as revenue',
+        description: `Stripe charge ${tx.id} (${fmtUsd(tx.amountGross)}) is disputed, but invoice ${invoice.id} still recognizes it as revenue.`,
+        discrepancyAmount: tx.amountGross,
+        confidenceScore: 0.9,
+        period,
+        affectedEntities: { invoiceId: invoice.id, stripeChargeId: tx.id },
+        suggestedAction: 'Record a reserve/adjustment for the disputed amount and any dispute fee.',
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }
+
+  // Stripe charges that succeeded but were never recognized by any
+  // Chargebee invoice at all — confidence is deliberately lower than the
+  // matched-pair checks above, since a standalone Stripe charge outside
+  // Chargebee's billing can be entirely legitimate, not necessarily an error.
+  for (const tx of transactions) {
+    if (tx.status !== 'succeeded' || matchedTxIds.has(tx.id)) continue;
+    anomalies.push({
+      id: `anom_unmatched_stripe_${tx.id}`,
+      type: 'REVENUE_LEAKAGE',
+      severity: severityFor(tx.amountGross),
+      title: 'Stripe charge not recognized as revenue in Chargebee',
+      description: `Stripe charge ${tx.id} (${fmtUsd(tx.amountGross)}) succeeded in ${period}, but no Chargebee invoice recognizes it as revenue.`,
+      discrepancyAmount: tx.amountGross,
+      confidenceScore: 0.75,
+      period,
+      affectedEntities: { stripeChargeId: tx.id },
+      suggestedAction: 'Confirm whether this charge should be reflected as recognized revenue, or whether it is intentionally outside Chargebee billing.',
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  // Payouts initiated this period that settle in a different one — a
+  // real timing/float difference, not an error, computed directly from
+  // Stripe's own payout dates rather than a hardcoded fixture.
+  if (stripePayoutResult.status === 'CONNECTED') {
+    for (const payout of stripePayoutResult.data) {
+      const createdMonth = payout.created.slice(0, 7);
+      const arrivalMonth = payout.arrivalDate.slice(0, 7);
+      if (createdMonth === period && arrivalMonth !== createdMonth) {
+        anomalies.push({
+          id: `anom_timing_${payout.id}`,
+          type: 'TIMING_DIFFERENCE',
+          severity: 'MEDIUM',
+          title: 'Payout initiated this period settles in a different one',
+          description: `Stripe payout ${payout.id} (${fmtUsd(payout.amount)}) was initiated in ${createdMonth} but settles in ${arrivalMonth} — a timing difference between Stripe net deposits and the bank feed.`,
+          discrepancyAmount: payout.amount,
+          confidenceScore: 0.95,
+          period,
+          affectedEntities: { stripePayoutId: payout.id },
+          suggestedAction: "Classify as in-transit clearing asset for this period; reverse upon next period's bank feed match.",
+          timestamp: new Date().toISOString(),
+        });
+      }
+    }
+  }
+
+  return anomalies;
 }
 
 // LEDGERGUARD_DATA_MODE=live selects real provider APIs, scoped to

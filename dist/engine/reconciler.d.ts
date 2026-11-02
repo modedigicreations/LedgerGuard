@@ -1,4 +1,4 @@
-import { VarianceReport } from '../types/index.js';
+import { VarianceReport, Anomaly, ChargebeeInvoice, GatewayTransaction, GatewayPayout, ProviderResult } from '../types/index.js';
 import { FinancialDataSource } from '../datasources/types.js';
 export interface AuditOptions {
     period?: string;
@@ -12,4 +12,5 @@ export declare class ReconciliationEngine {
     constructor(userId: string, dataSource: FinancialDataSource);
     runAudit(options?: AuditOptions): Promise<VarianceReport>;
 }
+export declare function detectLiveAnomalies(chargebeeResult: ProviderResult<ChargebeeInvoice>, stripeTxResult: ProviderResult<GatewayTransaction>, stripePayoutResult: ProviderResult<GatewayPayout>, period: string): Anomaly[];
 export declare function getReconcilerFor(userId: string): ReconciliationEngine;

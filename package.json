@@ -23,6 +23,7 @@
     "test:paystack": "tsx tests/test-paystack-mapping.ts",
     "test:paddle": "tsx tests/test-paddle-mapping.ts",
     "test:braintree": "tsx tests/test-braintree-mapping.ts",
+    "test:live-anomalies": "tsx tests/test-live-anomalies.ts",
     "test:auth": "tsx tests/test-auth.ts"
   },
   "keywords": [
