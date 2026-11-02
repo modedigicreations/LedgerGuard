@@ -14,7 +14,7 @@ import { createOidcProvider } from './auth/oidc-provider.js';
 import { resolveUserIdFromBearer } from './auth/authenticate.js';
 import { sendMagicLink, verifyMagicLink } from './auth/magic-link.js';
 import { createDashboardSession, resolveDashboardSession, destroyDashboardSession, DASHBOARD_COOKIE_NAME } from './auth/dashboard-session.js';
-import { emailFormPage, checkEmailPage, errorPage } from './auth/pages.js';
+import { emailFormPage, checkEmailPage, confirmSignInPage, errorPage } from './auth/pages.js';
 import { setApiKeyFor, listConnectionsFor, type ConnectedProvider } from './auth/connected-accounts.js';
 import { connectFormPage } from './auth/connect-page.js';
 import { pool } from './db/pool.js';
@@ -89,30 +89,45 @@ export async function buildRestServer(): Promise<FastifyInstance> {
       reply.clearCookie(DASHBOARD_COOKIE_NAME, { path: '/' });
       reply.redirect('/login');
     });
-  });
 
-  // Dashboard-only verify (no OAuth interaction to resume) — sets the
-  // dashboard cookie and redirects in.
-  app.get('/magic-link/verify', async (req, reply) => {
-    const token = (req.query as { token?: string }).token;
-    if (!token) {
-      reply.type('text/html').send(errorPage('Missing sign-in token.'));
-      return;
-    }
-    const result = await verifyMagicLink(token);
-    if (!result) {
-      reply.type('text/html').send(errorPage('This sign-in link is invalid, expired, or already used. Request a new one.'));
-      return;
-    }
-    const session = await createDashboardSession(result.userId);
-    reply.setCookie(DASHBOARD_COOKIE_NAME, session.id, {
-      path: '/',
-      httpOnly: true,
-      secure: issuer.startsWith('https://'),
-      sameSite: 'lax',
-      expires: session.expiresAt,
+    // Dashboard-only verify (no OAuth interaction to resume). GET only
+    // shows a "click to continue" confirmation — it must NOT consume the
+    // token itself, since corporate mail gateways (Safe Links, Proofmark,
+    // Mimecast, etc.) routinely prefetch every link in an incoming email
+    // to scan it, which would silently burn a single-use token before the
+    // real recipient ever opens it. Only the POST (an actual click)
+    // consumes it, sets the cookie, and redirects in.
+    loginScope.get('/magic-link/verify', async (req, reply) => {
+      const token = (req.query as { token?: string }).token;
+      if (!token) {
+        reply.type('text/html').send(errorPage('Missing sign-in token.'));
+        return;
+      }
+      reply.type('text/html').send(confirmSignInPage('/magic-link/verify', token));
     });
-    reply.redirect('/');
+
+    loginScope.post('/magic-link/verify', async (req, reply) => {
+      const body = await readFormBody(req);
+      const token = body.get('token');
+      if (!token) {
+        reply.type('text/html').send(errorPage('Missing sign-in token.'));
+        return;
+      }
+      const result = await verifyMagicLink(token);
+      if (!result) {
+        reply.type('text/html').send(errorPage('This sign-in link is invalid, expired, or already used. Request a new one.'));
+        return;
+      }
+      const session = await createDashboardSession(result.userId);
+      reply.setCookie(DASHBOARD_COOKIE_NAME, session.id, {
+        path: '/',
+        httpOnly: true,
+        secure: issuer.startsWith('https://'),
+        sameSite: 'lax',
+        expires: session.expiresAt,
+      });
+      reply.redirect('/');
+    });
   });
 
   // ---------------------------------------------------------------------
@@ -157,8 +172,25 @@ export async function buildRestServer(): Promise<FastifyInstance> {
     // Lives under /interaction/:uid specifically (not a top-level path) so
     // the browser actually sends oidc-provider's interaction cookie — see
     // sendMagicLink's comment on verifyPath for why that matters.
+    //
+    // GET only shows a "click to continue" confirmation — it must NOT
+    // consume the token itself, since corporate mail gateways routinely
+    // prefetch every link in an incoming email to scan it, which would
+    // silently burn a single-use token before the real recipient ever
+    // opens it. Only the POST (an actual click) consumes it.
     interactionScope.get('/interaction/:uid/verify', async (req, reply) => {
+      const { uid } = req.params as { uid: string };
       const token = (req.query as { token?: string }).token;
+      if (!token) {
+        reply.type('text/html').send(errorPage('Missing sign-in token.'));
+        return;
+      }
+      reply.type('text/html').send(confirmSignInPage(`/interaction/${uid}/verify`, token));
+    });
+
+    interactionScope.post('/interaction/:uid/verify', async (req, reply) => {
+      const body = await readFormBody(req);
+      const token = body.get('token');
       if (!token) {
         reply.type('text/html').send(errorPage('Missing sign-in token.'));
         return;

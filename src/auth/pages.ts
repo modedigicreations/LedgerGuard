@@ -36,6 +36,24 @@ export function checkEmailPage(email: string): string {
 	`);
 }
 
+// A bare GET link that completes sign-in on load is a classic target for
+// corporate mail gateways (Microsoft Defender Safe Links, Proofpoint,
+// Mimecast, etc.) that prefetch every URL in an incoming email to scan it
+// — which silently consumes a single-use magic-link token before the
+// actual recipient ever opens it, and they land on "link expired" with no
+// idea why. This interstitial requires an explicit POST (a real click,
+// not an automated GET) before the token is ever looked up.
+export function confirmSignInPage(actionUrl: string, token: string): string {
+	return shell('Confirm sign-in', `
+		<h1>🛡️ Confirm sign-in</h1>
+		<p>Click below to finish signing in to LedgerGuard.</p>
+		<form method="POST" action="${actionUrl}">
+			<input type="hidden" name="token" value="${token.replace(/"/g, '&quot;')}">
+			<button type="submit">Sign in</button>
+		</form>
+	`);
+}
+
 export function errorPage(message: string): string {
 	return shell('Error', `
 		<h1>Something went wrong</h1>
