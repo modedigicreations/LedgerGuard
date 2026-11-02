@@ -1,15 +1,13 @@
-import { randomBytes, createHash } from 'crypto';
+import { randomBytes, randomInt, createHash } from 'crypto';
 import { Resend } from 'resend';
 import { pool } from '../db/pool.js';
-const TOKEN_TTL_MS = 15 * 60 * 1000; // 15 minutes
-function hashToken(rawToken) {
-    return createHash('sha256').update(rawToken).digest('hex');
+const CODE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const MAX_ATTEMPTS = 5;
+function hashCode(code) {
+    return createHash('sha256').update(code).digest('hex');
 }
-function getResend() {
-    if (!process.env.RESEND_API_KEY) {
-        throw new Error('RESEND_API_KEY is not set — magic-link sign-in cannot send email.');
-    }
-    return new Resend(process.env.RESEND_API_KEY);
+function generateCode() {
+    return String(randomInt(0, 1_000_000)).padStart(6, '0');
 }
 async function findOrCreateUser(email) {
     const normalized = email.trim().toLowerCase();
@@ -18,67 +16,85 @@ async function findOrCreateUser(email) {
 		 RETURNING id`, [normalized]);
     return rows[0].id;
 }
-// Generates a single-use token (stored only as a hash — never in
-// plaintext), emails the raw token as a link via Resend, and returns the
-// userId it was issued for.
+function getResend() {
+    if (!process.env.RESEND_API_KEY) {
+        throw new Error('RESEND_API_KEY is not set — magic-link sign-in cannot send email.');
+    }
+    return new Resend(process.env.RESEND_API_KEY);
+}
+// Sends a 6-digit one-time code the user types in by hand, rather than a
+// clickable link. A link that silently completes sign-in on load is
+// exactly what mail security gateways (Safe Links, Proofpoint, Mimecast)
+// and some senders' own click-tracking are built to visit automatically
+// — which was burning the single-use credential before a real person
+// ever saw it. A typed code has no URL for anything automated to act on.
 export async function sendMagicLink(options) {
     const userId = await findOrCreateUser(options.email);
-    const rawToken = randomBytes(32).toString('base64url');
-    const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
+    const challengeId = options.interactionUid ?? randomBytes(16).toString('base64url');
+    const code = generateCode();
+    const expiresAt = new Date(Date.now() + CODE_TTL_MS);
+    // A fresh code invalidates any still-pending one for the same
+    // challenge, so only ever the latest code is a valid guess target —
+    // otherwise hitting "resend" a few times would leave several codes
+    // simultaneously live for the same login.
+    await pool.query(`UPDATE magic_link_tokens SET consumed_at = now() WHERE interaction_uid = $1 AND consumed_at IS NULL`, [challengeId]);
     await pool.query(`INSERT INTO magic_link_tokens (user_id, token_hash, interaction_uid, expires_at)
-		 VALUES ($1, $2, $3, $4)`, [userId, hashToken(rawToken), options.interactionUid ?? null, expiresAt]);
-    // oidc-provider scopes its interaction cookie to the /interaction/:uid
-    // path specifically — a verify link at any other path, even with the
-    // right cookie jar, would never actually receive that cookie (a real
-    // browser hits the exact same wall curl did while testing this). The
-    // dashboard-only case (no interaction to resume) has no such
-    // constraint and uses a plain top-level path.
-    const verifyPath = options.interactionUid
-        ? `/interaction/${options.interactionUid}/verify`
-        : '/magic-link/verify';
-    const verifyUrl = new URL(verifyPath, options.baseUrl);
-    verifyUrl.searchParams.set('token', rawToken);
+		 VALUES ($1, $2, $3, $4)`, [userId, hashCode(code), challengeId, expiresAt]);
     if (!process.env.RESEND_API_KEY) {
-        // No email provider configured — print the link instead of failing
-        // outright, so local dev (and testing this flow before Resend is
-        // set up) still works end to end. Never falls back silently in a
-        // way that hides the missing config: it's loud, in logs an
-        // operator would see.
-        console.warn(`[magic-link] RESEND_API_KEY not set — sign-in link for ${options.email}: ${verifyUrl.toString()}`);
-        return userId;
+        // No email provider configured — print the code instead of failing
+        // outright, so local dev still works end to end. Loud on purpose,
+        // in logs an operator would see, never a silent fallback.
+        console.warn(`[magic-link] RESEND_API_KEY not set — sign-in code for ${options.email}: ${code}`);
+        return { userId, challengeId };
     }
     const resend = getResend();
     await resend.emails.send({
         from: process.env.EMAIL_FROM || 'LedgerGuard <noreply@ledgerguard.app>',
         to: options.email,
-        subject: 'Sign in to LedgerGuard',
-        html: `<p>Click below to sign in to LedgerGuard. This link expires in 15 minutes and can only be used once.</p><p><a href="${verifyUrl.toString()}">Sign in to LedgerGuard</a></p><p>If you didn't request this, you can ignore this email.</p>`,
-        text: `Sign in to LedgerGuard: ${verifyUrl.toString()} (expires in 15 minutes, single use)`,
+        subject: `Your LedgerGuard sign-in code: ${code}`,
+        html: `<p>Your LedgerGuard sign-in code is:</p><p style="font-size:32px;font-weight:700;letter-spacing:6px;">${code}</p><p>Type it into the page where you requested it. It expires in 10 minutes and works once. Do not share this code, and ignore this email if you didn't request it — there is no link here to click.</p>`,
+        text: `Your LedgerGuard sign-in code is: ${code}\n\nType it into the page where you requested it. It expires in 10 minutes and works once. There is no link to click.`,
     });
-    return userId;
+    return { userId, challengeId };
 }
-// Consumes a single-use token. Returns null for anything invalid, expired,
-// or already-used rather than distinguishing why — no reason to help an
-// attacker enumerate which failure mode they hit.
-export async function verifyMagicLink(rawToken) {
-    const tokenHash = hashToken(rawToken);
+// Consumes a one-time code for the given challenge. Returns null for
+// anything invalid, expired, locked out, or wrong — no reason to
+// distinguish why, same reasoning as before: don't help an attacker
+// enumerate which failure mode they hit. A wrong guess increments the
+// attempt count and locks the code out entirely after MAX_ATTEMPTS,
+// since a 6-digit space is only ~1M wide and worth guarding directly
+// rather than relying on TTL alone.
+export async function verifyCode(challengeId, code) {
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
-        const { rows } = await client.query(`SELECT magic_link_tokens.id, magic_link_tokens.user_id, magic_link_tokens.interaction_uid, users.email
+        const { rows } = await client.query(`SELECT magic_link_tokens.id, magic_link_tokens.user_id, magic_link_tokens.token_hash, magic_link_tokens.attempts, users.email
 			 FROM magic_link_tokens
 			 JOIN users ON users.id = magic_link_tokens.user_id
-			 WHERE magic_link_tokens.token_hash = $1
+			 WHERE magic_link_tokens.interaction_uid = $1
 			   AND magic_link_tokens.consumed_at IS NULL
 			   AND magic_link_tokens.expires_at > now()
-			 FOR UPDATE OF magic_link_tokens`, [tokenHash]);
+			 ORDER BY magic_link_tokens.created_at DESC
+			 LIMIT 1
+			 FOR UPDATE OF magic_link_tokens`, [challengeId]);
         if (rows.length === 0) {
             await client.query('ROLLBACK');
             return null;
         }
-        await client.query('UPDATE magic_link_tokens SET consumed_at = now() WHERE id = $1', [rows[0].id]);
+        const row = rows[0];
+        if (row.attempts >= MAX_ATTEMPTS) {
+            await client.query('UPDATE magic_link_tokens SET consumed_at = now() WHERE id = $1', [row.id]);
+            await client.query('COMMIT');
+            return null;
+        }
+        if (hashCode(code) !== row.token_hash) {
+            await client.query('UPDATE magic_link_tokens SET attempts = attempts + 1 WHERE id = $1', [row.id]);
+            await client.query('COMMIT');
+            return null;
+        }
+        await client.query('UPDATE magic_link_tokens SET consumed_at = now() WHERE id = $1', [row.id]);
         await client.query('COMMIT');
-        return { userId: rows[0].user_id, email: rows[0].email, interactionUid: rows[0].interaction_uid };
+        return { userId: row.user_id, email: row.email };
     }
     catch (err) {
         await client.query('ROLLBACK');

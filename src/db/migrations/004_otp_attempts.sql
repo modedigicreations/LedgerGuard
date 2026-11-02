@@ -1,0 +1,13 @@
+-- Magic links are being auto-clicked before real users ever see them —
+-- by mail security gateways (Safe Links / Proofpoint / Mimecast-style
+-- sandboxes that render the page and click buttons, not just prefetch
+-- GETs) and/or click-tracking on the sending side. A clickable URL that
+-- completes sign-in is fundamentally exposed to this; a short code the
+-- user types by hand on the page they're already looking at isn't,
+-- since there's no URL for anything automated to visit.
+--
+-- attempts backs a per-code lockout (a handful of wrong guesses and the
+-- code is dead) — needed now that the credential is a short, guessable
+-- 6-digit number rather than a long random token, where the token_hash
+-- lookup alone was sufficiently unguessable.
+ALTER TABLE magic_link_tokens ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0;

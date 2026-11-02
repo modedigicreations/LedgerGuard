@@ -22,31 +22,28 @@ export function emailFormPage(actionUrl) {
 		<h1>🛡️ Sign in to LedgerGuard</h1>
 		<form method="POST" action="${actionUrl}">
 			<input type="email" name="email" placeholder="you@company.com" required autofocus>
-			<button type="submit">Send sign-in link</button>
+			<button type="submit">Send sign-in code</button>
 		</form>
-		<p>No password — we'll email you a one-time link instead.</p>
+		<p>No password — we'll email you a 6-digit code instead.</p>
 	`);
 }
-export function checkEmailPage(email) {
-    return shell('Check your email', `
-		<h1>✉️ Check your email</h1>
-		<p>We sent a sign-in link to <strong>${email.replace(/</g, '&lt;')}</strong>. It expires in 15 minutes and works once.</p>
-	`);
-}
-// A bare GET link that completes sign-in on load is a classic target for
-// corporate mail gateways (Microsoft Defender Safe Links, Proofpoint,
-// Mimecast, etc.) that prefetch every URL in an incoming email to scan it
-// — which silently consumes a single-use magic-link token before the
-// actual recipient ever opens it, and they land on "link expired" with no
-// idea why. This interstitial requires an explicit POST (a real click,
-// not an automated GET) before the token is ever looked up.
-export function confirmSignInPage(actionUrl, token) {
-    return shell('Confirm sign-in', `
-		<h1>🛡️ Confirm sign-in</h1>
-		<p>Click below to finish signing in to LedgerGuard.</p>
+// No clickable link here on purpose — a link that completes sign-in on
+// load is exactly what mail security gateways (Safe Links, Proofpoint,
+// Mimecast-style sandboxes) and some senders' own click-tracking are
+// built to visit automatically, which silently burns a single-use
+// credential before the real recipient ever sees it. A code the person
+// types in by hand has no URL for anything automated to act on.
+// challengeId travels as a hidden field when the action URL doesn't
+// already encode it (the OAuth interaction flow's /interaction/:uid/code
+// doesn't need one, since :uid already scopes it).
+export function codeEntryPage(email, actionUrl, challengeId) {
+    return shell('Enter your code', `
+		<h1>🔢 Enter your code</h1>
+		<p>We emailed a 6-digit code to <strong>${email.replace(/</g, '&lt;')}</strong>. It expires in 10 minutes and works once.</p>
 		<form method="POST" action="${actionUrl}">
-			<input type="hidden" name="token" value="${token.replace(/"/g, '&quot;')}">
-			<button type="submit">Sign in</button>
+			${challengeId ? `<input type="hidden" name="challengeId" value="${challengeId.replace(/"/g, '&quot;')}">` : ''}
+			<input type="text" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="123456" required autofocus style="text-align:center;letter-spacing:4px;font-size:1.3rem;">
+			<button type="submit">Verify</button>
 		</form>
 	`);
 }

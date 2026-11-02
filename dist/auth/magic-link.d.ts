@@ -3,10 +3,13 @@ export interface SendMagicLinkOptions {
     interactionUid?: string;
     baseUrl: string;
 }
-export declare function sendMagicLink(options: SendMagicLinkOptions): Promise<string>;
+export interface SendMagicLinkResult {
+    userId: string;
+    challengeId: string;
+}
+export declare function sendMagicLink(options: SendMagicLinkOptions): Promise<SendMagicLinkResult>;
 export interface VerifiedMagicLink {
     userId: string;
     email: string;
-    interactionUid: string | null;
 }
-export declare function verifyMagicLink(rawToken: string): Promise<VerifiedMagicLink | null>;
+export declare function verifyCode(challengeId: string, code: string): Promise<VerifiedMagicLink | null>;
