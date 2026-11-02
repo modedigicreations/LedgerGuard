@@ -243,15 +243,27 @@ export async function buildRestServer(): Promise<FastifyInstance> {
       const AccountGrant = (provider as unknown as {
         Grant: new (opts: { accountId: string; clientId: string }) => {
           addOIDCScope(scope: string): void;
+          addResourceScope(resource: string, scope: string): void;
           save(): Promise<string>;
         };
       }).Grant;
 
+      const scope = String(interaction.params.scope || 'openid email offline_access');
       const grant = new AccountGrant({
         accountId: interaction.session!.accountId as string,
         clientId: interaction.params.client_id as string,
       });
-      grant.addOIDCScope(String(interaction.params.scope || 'openid email offline_access'));
+      grant.addOIDCScope(scope);
+      // Resource Indicators (see oidc-provider.ts) need the grant to
+      // separately cover the requested resource's scope, not just the
+      // OIDC scope — without this, oidc-provider doesn't recognize the
+      // resource as authorized and re-prompts for consent every time,
+      // looping instead of ever completing (found via a real connector
+      // attempt immediately after enabling resourceIndicators).
+      const resource = interaction.params.resource;
+      if (typeof resource === 'string') {
+        grant.addResourceScope(resource, scope);
+      }
       const grantId = await grant.save();
 
       await provider.interactionFinished(req.raw, reply.raw, { consent: { grantId } });
