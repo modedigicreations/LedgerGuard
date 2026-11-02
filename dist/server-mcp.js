@@ -67,14 +67,14 @@ export function createLedgerGuardMCPServer(userId) {
                 },
                 {
                     name: 'connect_payment_gateway',
-                    description: "Get a link to connect your own Stripe, Chargebee, PayStack, or Paddle account to LedgerGuard. Only you can see your credentials — this tool never asks for or accepts an API key directly (tool arguments aren't a safe place for secrets), it just returns a link to LedgerGuard's own dashboard where you enter it yourself.",
+                    description: "Get a link to connect your own Stripe, Chargebee, PayStack, Paddle, or Braintree account to LedgerGuard. Only you can see your credentials — this tool never asks for or accepts an API key directly (tool arguments aren't a safe place for secrets), it just returns a link to LedgerGuard's own dashboard where you enter it yourself.",
                     inputSchema: {
                         type: 'object',
                         properties: {
                             provider: {
                                 type: 'string',
                                 description: 'Which provider to connect',
-                                enum: ['STRIPE', 'CHARGEBEE', 'PAYSTACK', 'PADDLE']
+                                enum: ['STRIPE', 'CHARGEBEE', 'PAYSTACK', 'PADDLE', 'BRAINTREE']
                             }
                         },
                         required: ['provider']

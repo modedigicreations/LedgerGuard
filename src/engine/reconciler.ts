@@ -31,21 +31,23 @@ export class ReconciliationEngine {
     const actor = options.actor || 'SYSTEM';
     const range = periodToDateRange(period);
 
-    const [chargebeeResult, stripeTxResult, stripePayoutResult, plaidResult, qboResult, paystackTxResult, paddleTxResult] = await Promise.all([
+    const [chargebeeResult, stripeTxResult, stripePayoutResult, plaidResult, qboResult, paystackTxResult, paddleTxResult, braintreeTxResult] = await Promise.all([
       this.dataSource.getChargebeeInvoices(range),
       this.dataSource.getGatewayTransactions('STRIPE', range),
       this.dataSource.getGatewayPayouts('STRIPE', range),
       this.dataSource.getPlaidTransactions(range),
       this.dataSource.getQBOJournalEntries(range),
-      // Fetched for an honest providerStatus entry only — PayStack/Paddle
-      // aren't folded into this report's USD-denominated summary math yet
-      // (see VarianceReport.currency's comment), same as Plaid/QuickBooks
-      // already being fetched here without feeding the dollar totals.
-      // Transactions only, never payouts — Paddle's getPayouts() throws
-      // by design (see its own comment), since Paddle has no synchronous
-      // payout list endpoint to call here.
+      // Fetched for an honest providerStatus entry only — PayStack/Paddle/
+      // Braintree aren't folded into this report's USD-denominated summary
+      // math yet (see VarianceReport.currency's comment), same as Plaid/
+      // QuickBooks already being fetched here without feeding the dollar
+      // totals. Transactions only, never payouts — Paddle's and
+      // Braintree's getPayouts() both throw by design (see their own
+      // comments), since neither has a synchronous payout list endpoint
+      // to call here.
       this.dataSource.getGatewayTransactions('PAYSTACK', range),
-      this.dataSource.getGatewayTransactions('PADDLE', range)
+      this.dataSource.getGatewayTransactions('PADDLE', range),
+      this.dataSource.getGatewayTransactions('BRAINTREE', range)
     ]);
 
     const providerStatus: Record<ProviderName, ProviderStatus> = {
@@ -58,7 +60,8 @@ export class ReconciliationEngine {
       PLAID: plaidResult.status,
       QUICKBOOKS: qboResult.status,
       PAYSTACK: paystackTxResult.status,
-      PADDLE: paddleTxResult.status
+      PADDLE: paddleTxResult.status,
+      BRAINTREE: braintreeTxResult.status
     };
 
     // 1. Recognized Revenue from Billing (Chargebee). null, not $0, when

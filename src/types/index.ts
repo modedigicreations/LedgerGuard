@@ -124,7 +124,7 @@ export interface Anomaly {
   timestamp: string;
 }
 
-export type ProviderName = 'STRIPE' | 'CHARGEBEE' | 'PLAID' | 'QUICKBOOKS' | 'PAYSTACK' | 'PADDLE';
+export type ProviderName = 'STRIPE' | 'CHARGEBEE' | 'PLAID' | 'QUICKBOOKS' | 'PAYSTACK' | 'PADDLE' | 'BRAINTREE';
 export type ProviderStatus = 'CONNECTED' | 'NOT_CONFIGURED' | 'ERROR';
 
 export interface ProviderResult<T> {
@@ -140,14 +140,17 @@ export interface DateRange {
 
 // What every "raw processor" payment gateway's adapter implements
 // (src/datasources/gateways/*.ts), dispatched through the registry in
-// src/datasources/gateways/registry.ts. Only STRIPE has an adapter so
-// far (Phase C proves the pattern with the one gateway already built);
-// PayStack/Paddle/Braintree/Square/PayPal each get their own adapter
-// file as they're built, with no change needed here or in
-// LiveDataSource/MockDataSource beyond adding their registry entry.
+// src/datasources/gateways/registry.ts. Stripe/PayStack/Paddle only ever
+// needed the one secret apiKey; Braintree needs a second, non-secret
+// identifier alongside it (its public key, paired with apiKey as the
+// private key) — accountId covers that the same way it already does for
+// Chargebee's site name outside this registry, rather than inventing a
+// separate credential shape just for Braintree. Square/PayPal each get
+// their own adapter file as they're built, with no change needed here
+// beyond their registry entry.
 export interface PaymentGatewayAdapter {
-  getTransactions(apiKey: string, range: DateRange): Promise<GatewayTransaction[]>;
-  getPayouts(apiKey: string, range: DateRange): Promise<GatewayPayout[]>;
+  getTransactions(apiKey: string, range: DateRange, accountId?: string): Promise<GatewayTransaction[]>;
+  getPayouts(apiKey: string, range: DateRange, accountId?: string): Promise<GatewayPayout[]>;
 }
 
 export interface VarianceReport {

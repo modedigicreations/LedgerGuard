@@ -89,7 +89,7 @@ export interface Anomaly {
     suggestedAction: string;
     timestamp: string;
 }
-export type ProviderName = 'STRIPE' | 'CHARGEBEE' | 'PLAID' | 'QUICKBOOKS' | 'PAYSTACK' | 'PADDLE';
+export type ProviderName = 'STRIPE' | 'CHARGEBEE' | 'PLAID' | 'QUICKBOOKS' | 'PAYSTACK' | 'PADDLE' | 'BRAINTREE';
 export type ProviderStatus = 'CONNECTED' | 'NOT_CONFIGURED' | 'ERROR';
 export interface ProviderResult<T> {
     status: ProviderStatus;
@@ -101,8 +101,8 @@ export interface DateRange {
     end: Date;
 }
 export interface PaymentGatewayAdapter {
-    getTransactions(apiKey: string, range: DateRange): Promise<GatewayTransaction[]>;
-    getPayouts(apiKey: string, range: DateRange): Promise<GatewayPayout[]>;
+    getTransactions(apiKey: string, range: DateRange, accountId?: string): Promise<GatewayTransaction[]>;
+    getPayouts(apiKey: string, range: DateRange, accountId?: string): Promise<GatewayPayout[]>;
 }
 export interface VarianceReport {
     reportId: string;

@@ -36,17 +36,27 @@ const PROVIDER_LABEL = {
 };
 export function connectFormPage(provider, status) {
     const label = PROVIDER_LABEL[provider];
-    const accountIdField = provider === 'CHARGEBEE'
-        ? `<label for="accountId">Chargebee site name</label>
-			   <input type="text" id="accountId" name="accountId" placeholder="mycompany" required>`
-        : '';
+    let accountIdField = '';
+    let apiKeyLabel = `${label} API key`;
+    let helpText = '';
+    if (provider === 'CHARGEBEE') {
+        accountIdField = `<label for="accountId">Chargebee site name</label>
+		   <input type="text" id="accountId" name="accountId" placeholder="mycompany" required>`;
+    }
+    else if (provider === 'BRAINTREE') {
+        accountIdField = `<label for="accountId">Braintree public key</label>
+		   <input type="text" id="accountId" name="accountId" placeholder="your public key (prefix with sandbox: to use your sandbox account)" required>`;
+        apiKeyLabel = 'Braintree private key';
+        helpText = '<p>Braintree needs both keys from a single pair — find them in your Braintree dashboard under API Keys.</p>';
+    }
     return shell(`Connect ${label}`, `
 		<h1>🔌 Connect ${label}</h1>
 		<span class="status ${status}">${status.replace(/_/g, ' ')}</span>
 		<p>Your key is stored encrypted and only ever used to read your own ${label} data. It's never shown to the AI assistant — only you see it here.</p>
+		${helpText}
 		<form method="POST" action="/connect/${provider.toLowerCase()}">
 			${accountIdField}
-			<label for="apiKey">${label} API key</label>
+			<label for="apiKey">${apiKeyLabel}</label>
 			<input type="password" id="apiKey" name="apiKey" placeholder="${provider === 'STRIPE' ? 'sk_test_...' : 'full_access_key'}" required autofocus>
 			<button type="submit">${status === 'CONNECTED' ? 'Update key' : 'Connect'}</button>
 		</form>

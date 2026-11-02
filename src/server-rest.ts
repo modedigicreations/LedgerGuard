@@ -276,7 +276,7 @@ export async function buildRestServer(): Promise<FastifyInstance> {
   // PayStack) — an OAuth-Connect gateway (Square, PayPal) will need its
   // own authorize-redirect route instead of this paste-a-key form, added
   // when that gateway is built.
-  const API_KEY_PROVIDERS: ConnectedProvider[] = ['STRIPE', 'CHARGEBEE', 'PAYSTACK', 'PADDLE'];
+  const API_KEY_PROVIDERS: ConnectedProvider[] = ['STRIPE', 'CHARGEBEE', 'PAYSTACK', 'PADDLE', 'BRAINTREE'];
 
   app.register(async (connectScope) => {
     connectScope.addContentTypeParser('application/x-www-form-urlencoded', (_req, _payload, done) => done(null));
@@ -311,6 +311,10 @@ export async function buildRestServer(): Promise<FastifyInstance> {
       }
       if (provider === 'CHARGEBEE' && !accountId) {
         reply.type('text/html').send(errorPage('Chargebee also needs your site name (e.g. "mycompany" from mycompany.chargebee.com).'));
+        return;
+      }
+      if (provider === 'BRAINTREE' && !accountId) {
+        reply.type('text/html').send(errorPage('Braintree also needs your public key (paired with the private key you just entered).'));
         return;
       }
       await setApiKeyFor(userId, provider as ConnectedProvider, apiKey, accountId);

@@ -42,7 +42,7 @@ export class LiveDataSource {
         if (!cred)
             return { status: 'NOT_CONFIGURED', data: [] };
         try {
-            const data = await adapter.getTransactions(cred.apiKey, range);
+            const data = await adapter.getTransactions(cred.apiKey, range, cred.accountId ?? undefined);
             return { status: 'CONNECTED', data };
         }
         catch (err) {
@@ -57,7 +57,7 @@ export class LiveDataSource {
         if (!cred)
             return { status: 'NOT_CONFIGURED', data: [] };
         try {
-            const data = await adapter.getPayouts(cred.apiKey, range);
+            const data = await adapter.getPayouts(cred.apiKey, range, cred.accountId ?? undefined);
             return { status: 'CONNECTED', data };
         }
         catch (err) {
