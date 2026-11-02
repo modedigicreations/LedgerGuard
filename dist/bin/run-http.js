@@ -34,7 +34,6 @@ async function start() {
 ========================================================================
 • Standalone Web Dashboard : http://localhost:${port}
 • OpenAPI / Swagger UI     : http://localhost:${port}/docs
-• ChatGPT Plugin Manifest  : http://localhost:${port}/.well-known/ai-plugin.json
 • MCP Streamable HTTP      : http://localhost:${port}/mcp
 • Data Mode                : ${process.env.LEDGERGUARD_DATA_MODE === 'live' ? 'live (real providers)' : 'mock (fixed Sept 2026 demo scenario)'}
 ========================================================================
