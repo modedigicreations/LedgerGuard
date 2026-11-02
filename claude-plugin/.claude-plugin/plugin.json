@@ -2,7 +2,7 @@
   "name": "ledgerguard",
   "displayName": "LedgerGuard",
   "version": "1.0.0",
-  "description": "Audits recognized revenue (Chargebee) against Stripe net deposits, Plaid bank feeds, and the ERP ledger. Flags discrepancies over a materiality threshold, matches them to processor fees, and drafts GAAP-compliant dual-entry journal adjustments for your approval before posting to QuickBooks, NetSuite, or Xero.",
+  "description": "Sign in with your own email, connect your own Stripe, Chargebee, PayStack, Paddle, or Braintree account, and audit recognized revenue against net deposits. Flags discrepancies over a materiality threshold, matches them to processor fees, and drafts GAAP-compliant dual-entry journal adjustments for your approval. Every user's data and credentials are isolated to their own account.",
   "author": { "name": "LedgerGuard Team" },
   "license": "MIT",
   "icon": ".claude-plugin/icon.png",

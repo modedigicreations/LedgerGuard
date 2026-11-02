@@ -352,30 +352,17 @@ export async function buildRestServer(): Promise<FastifyInstance> {
     });
   });
 
-  // ChatGPT Plugin Manifest
-  app.get('/.well-known/ai-plugin.json', async (req, reply) => {
-    reply.type('application/json').send({
-      schema_version: 'v1',
-      name_for_human: 'LedgerGuard Financial Auditor',
-      name_for_model: 'ledgerguard',
-      description_for_human: 'Autonomous Cross-Platform Financial Auditor & Reconciliation Engine.',
-      description_for_model: 'Audit recognized revenue from billing (Chargebee) against Stripe net deposits and bank feeds. Flag variances over thresholds with matching fees, review anomalies, and draft balancing dual-entry journal adjustments for user approval.',
-      auth: {
-        type: 'oauth',
-        client_url: `${issuer}/auth`,
-        authorization_url: `${issuer}/auth`,
-        authorization_content_type: 'application/json',
-        scope: 'openid email offline_access'
-      },
-      api: {
-        type: 'openapi',
-        url: `${issuer}/docs/json`
-      },
-      logo_url: 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=128&q=80',
-      contact_email: 'support@ledgerguard.ai',
-      legal_info_url: `${issuer}/legal`
-    });
-  });
+  // No /.well-known/ai-plugin.json here on purpose. That's the 2023
+  // ChatGPT Plugin manifest format (schema_version 'v1', an
+  // auth.authorization_content_type: 'application/json' shape) — it
+  // predates MCP connectors and doesn't actually match how /auth works
+  // (a standard GET-based OAuth2 authorize redirect, not a JSON POST).
+  // Modern ChatGPT custom connectors (like Claude's) use the same MCP +
+  // OAuth discovery this server already implements: paste the /mcp URL,
+  // pick OAuth, and ChatGPT does DCR + PKCE against
+  // /.well-known/oauth-protected-resource the same way Claude does — no
+  // separate manifest needed. A stale manifest serving mismatched auth
+  // details is worse than serving nothing.
 
   // REST API Endpoints
   app.get('/api/v1/audit/variance', {
