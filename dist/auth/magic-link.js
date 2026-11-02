@@ -60,8 +60,28 @@ export async function sendMagicLink(options) {
     // simultaneously live for the same login. Same bookkeeping for the
     // reviewer bypass code — only its VALUE is fixed, not its lifecycle.
     await pool.query(`UPDATE magic_link_tokens SET consumed_at = now() WHERE interaction_uid = $1 AND consumed_at IS NULL`, [challengeId]);
-    await pool.query(`INSERT INTO magic_link_tokens (user_id, token_hash, interaction_uid, expires_at)
-		 VALUES ($1, $2, $3, $4)`, [userId, hashCode(code), challengeId, expiresAt]);
+    if (bypassCode) {
+        // The reviewer's code never changes, so its hash is identical on
+        // every sign-in attempt, forever — a plain INSERT collides with
+        // token_hash's UNIQUE constraint the moment it's used a second
+        // time (even across separate interactions/days), since the first
+        // row is never deleted. Upsert that one evergreen row instead of
+        // inserting a new one each time; real users' random codes still
+        // use a fresh INSERT below, where a collision is cryptographically
+        // negligible and worth leaving as a hard error if it ever happened.
+        await pool.query(`INSERT INTO magic_link_tokens (user_id, token_hash, interaction_uid, expires_at)
+			 VALUES ($1, $2, $3, $4)
+			 ON CONFLICT (token_hash) DO UPDATE SET
+			   user_id = EXCLUDED.user_id,
+			   interaction_uid = EXCLUDED.interaction_uid,
+			   expires_at = EXCLUDED.expires_at,
+			   consumed_at = NULL,
+			   attempts = 0`, [userId, hashCode(code), challengeId, expiresAt]);
+    }
+    else {
+        await pool.query(`INSERT INTO magic_link_tokens (user_id, token_hash, interaction_uid, expires_at)
+			 VALUES ($1, $2, $3, $4)`, [userId, hashCode(code), challengeId, expiresAt]);
+    }
     if (bypassCode) {
         console.log(`[magic-link] reviewer bypass used for ${options.email}`);
         return { userId, challengeId };
