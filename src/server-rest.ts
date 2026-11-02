@@ -1,6 +1,7 @@
 import Fastify, { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import cookie from '@fastify/cookie';
+import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -21,7 +22,14 @@ import { pool } from './db/pool.js';
 
 export async function buildRestServer(): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: false
+    logger: false,
+    // Railway terminates TLS in front of this app and proxies every
+    // request — same reasoning as provider.proxy = true below for
+    // oidc-provider. Without this, rate-limit (and anything else keying
+    // off req.ip) would see Railway's edge IP for every request, which
+    // is shared across all users and would let one abusive client's
+    // requests count against everyone else's limit.
+    trustProxy: true
   });
 
   const issuer = process.env.LEDGERGUARD_OIDC_ISSUER || 'http://localhost:3333';
@@ -33,6 +41,17 @@ export async function buildRestServer(): Promise<FastifyInstance> {
   });
 
   await app.register(cookie);
+
+  // A generous global default (an AI agent driving /mcp can legitimately
+  // make many tool calls in one session) — the email-sending routes below
+  // get a much stricter override, since those are the real abuse surface
+  // (spamming a stranger's inbox with sign-in codes using our own Resend
+  // account, not a normal usage pattern at any volume).
+  await app.register(rateLimit, {
+    global: true,
+    max: 300,
+    timeWindow: '1 minute'
+  });
 
   // Setup Swagger / OpenAPI 3.1
   await app.register(swagger, {
@@ -73,7 +92,9 @@ export async function buildRestServer(): Promise<FastifyInstance> {
       reply.type('text/html').send(emailFormPage('/login'));
     });
 
-    loginScope.post('/login', async (req, reply) => {
+    loginScope.post('/login', {
+      config: { rateLimit: { max: 5, timeWindow: '15 minutes' } }
+    }, async (req, reply) => {
       const body = await readFormBody(req);
       const email = body.get('email');
       if (!email) {
@@ -94,7 +115,12 @@ export async function buildRestServer(): Promise<FastifyInstance> {
     // challengeId travels as a hidden form field since there's no :uid in
     // this path to scope it the way the OAuth interaction flow's own
     // /interaction/:uid/code does.
-    loginScope.post('/login/code', async (req, reply) => {
+    loginScope.post('/login/code', {
+      // Defense in depth alongside verifyCode's own 5-attempt-per-code
+      // lockout — this bounds how fast someone can cycle through guesses
+      // across many different challenges, not just one.
+      config: { rateLimit: { max: 20, timeWindow: '15 minutes' } }
+    }, async (req, reply) => {
       const body = await readFormBody(req);
       const challengeId = body.get('challengeId');
       const code = body.get('code');
@@ -146,7 +172,9 @@ export async function buildRestServer(): Promise<FastifyInstance> {
       reply.raw.end(emailFormPage(`/interaction/${uid}/email`));
     });
 
-    interactionScope.post('/interaction/:uid/email', async (req, reply) => {
+    interactionScope.post('/interaction/:uid/email', {
+      config: { rateLimit: { max: 5, timeWindow: '15 minutes' } }
+    }, async (req, reply) => {
       const { uid } = req.params as { uid: string };
       const body = await readFormBody(req);
       const email = body.get('email');
@@ -163,7 +191,9 @@ export async function buildRestServer(): Promise<FastifyInstance> {
     // which interactionFinished() below needs. :uid is the challenge id
     // the code was scoped to (sendMagicLink was called with
     // interactionUid: uid above), so there's no hidden field to carry it.
-    interactionScope.post('/interaction/:uid/code', async (req, reply) => {
+    interactionScope.post('/interaction/:uid/code', {
+      config: { rateLimit: { max: 20, timeWindow: '15 minutes' } }
+    }, async (req, reply) => {
       const { uid } = req.params as { uid: string };
       const body = await readFormBody(req);
       const code = body.get('code');

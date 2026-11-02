@@ -573,6 +573,26 @@ export function getDashboardHtml() {
   <div id="toast"></div>
 
   <script>
+    // Anomaly titles/descriptions, journal adjustment account names and
+    // line descriptions, and audit trail details all ultimately trace
+    // back to free text an MCP tool caller (an AI agent, on a real
+    // user's behalf) can set — draft_journal_adjustment's "lines" and
+    // "memo" arguments take arbitrary strings with no server-side
+    // sanitization, since journal memos legitimately need to contain
+    // whatever free text an accountant would write. They're rendered via
+    // innerHTML below for straightforward templating; escaping here is
+    // what keeps that safe instead of becoming a stored-XSS vector the
+    // moment any field holds something like '<img src=x onerror=...>'.
+    function escapeHtml(value) {
+      if (value === null || value === undefined) return '';
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
     function fmtKpi(value) {
       return value === null || value === undefined
         ? 'Not connected'
@@ -633,16 +653,16 @@ export function getDashboardHtml() {
             <div class="anomaly-card">
               <div class="anomaly-top">
                 <span class="anomaly-title">
-                  <span class="status-badge \${a.severity === 'CRITICAL' ? 'status-drift' : 'status-drift'}" style="font-size:0.65rem">\${a.severity}</span>
-                  \${a.title}
+                  <span class="status-badge \${a.severity === 'CRITICAL' ? 'status-drift' : 'status-drift'}" style="font-size:0.65rem">\${escapeHtml(a.severity)}</span>
+                  \${escapeHtml(a.title)}
                 </span>
                 <span class="anomaly-amount">$\${a.discrepancyAmount.toLocaleString('en-US', {minimumFractionDigits:2})}</span>
               </div>
-              <p class="anomaly-desc">\${a.description}</p>
+              <p class="anomaly-desc">\${escapeHtml(a.description)}</p>
               <div class="anomaly-footer">
                 <div>
-                  <span style="display:block; margin-bottom:0.25rem">\${a.suggestedAction}</span>
-                  <button class="btn btn-secondary" style="font-size:0.75rem; padding:0.25rem 0.65rem; margin-top:0.35rem" onclick="draftForAnomaly('\${a.id}')">
+                  <span style="display:block; margin-bottom:0.25rem">\${escapeHtml(a.suggestedAction)}</span>
+                  <button class="btn btn-secondary" style="font-size:0.75rem; padding:0.25rem 0.65rem; margin-top:0.35rem" onclick="draftForAnomaly('\${escapeHtml(a.id)}')">
                     + Draft Adjusting Entry
                   </button>
                 </div>
@@ -668,10 +688,10 @@ export function getDashboardHtml() {
         <div class="journal-box">
           <div class="journal-header">
             <div>
-              <span style="font-family:var(--font-mono); font-weight:700">\${adj.adjustmentNumber}</span>
-              <span style="color:var(--text-muted); margin-left:0.5rem">(\${adj.status})</span>
+              <span style="font-family:var(--font-mono); font-weight:700">\${escapeHtml(adj.adjustmentNumber)}</span>
+              <span style="color:var(--text-muted); margin-left:0.5rem">(\${escapeHtml(adj.status)})</span>
             </div>
-            <span style="font-size:0.75rem; color:#94a3b8">Target: <strong>\${adj.targetERP}</strong></span>
+            <span style="font-size:0.75rem; color:#94a3b8">Target: <strong>\${escapeHtml(adj.targetERP)}</strong></span>
           </div>
           <table class="journal-table">
             <thead>
@@ -685,8 +705,8 @@ export function getDashboardHtml() {
               \${adj.lines.map(l => \`
                 <tr>
                   <td>
-                    <div style="font-weight:600">\${l.accountCode} — \${l.accountName}</div>
-                    <div style="font-size:0.75rem; color:#64748b">\${l.description || ''}</div>
+                    <div style="font-weight:600">\${escapeHtml(l.accountCode)} — \${escapeHtml(l.accountName)}</div>
+                    <div style="font-size:0.75rem; color:#64748b">\${escapeHtml(l.description || '')}</div>
                   </td>
                   <td class="num" style="color:\${l.debit > 0 ? '#34d399' : '#64748b'}">\${l.debit > 0 ? '$' + l.debit.toFixed(2) : '—'}</td>
                   <td class="num" style="color:\${l.credit > 0 ? '#38bdf8' : '#64748b'}">\${l.credit > 0 ? '$' + l.credit.toFixed(2) : '—'}</td>
@@ -698,17 +718,17 @@ export function getDashboardHtml() {
             <span style="font-family:var(--font-mono); font-size:0.8rem; color:#94a3b8">Total: <strong>$\${adj.totalDebit.toFixed(2)}</strong></span>
             <div>
               \${adj.status === 'DRAFT' ? \`
-                <button class="btn btn-secondary" style="font-size:0.78rem; padding:0.4rem 0.8rem" onclick="approveAdjustment('\${adj.id}')">
+                <button class="btn btn-secondary" style="font-size:0.78rem; padding:0.4rem 0.8rem" onclick="approveAdjustment('\${escapeHtml(adj.id)}')">
                   ✓ Approve Entry
                 </button>
               \` : ''}
               \${adj.status === 'APPROVED' ? \`
-                <button class="btn btn-primary" style="font-size:0.78rem; padding:0.4rem 0.8rem" onclick="commitAdjustment('\${adj.id}')">
+                <button class="btn btn-primary" style="font-size:0.78rem; padding:0.4rem 0.8rem" onclick="commitAdjustment('\${escapeHtml(adj.id)}')">
                   Push to QuickBooks
                 </button>
               \` : ''}
               \${adj.status === 'POSTED' ? \`
-                <span class="status-badge status-ok" style="font-size:0.75rem">SYNCED: \${adj.erpPostedId}</span>
+                <span class="status-badge status-ok" style="font-size:0.75rem">SYNCED: \${escapeHtml(adj.erpPostedId)}</span>
               \` : ''}
             </div>
           </div>
@@ -724,11 +744,11 @@ export function getDashboardHtml() {
       container.innerHTML = data.trail.slice(-6).reverse().map(e => \`
         <div class="audit-item">
           <div class="audit-meta">
-            <span><strong>[\${e.actor}]</strong> \${e.action}</span>
+            <span><strong>[\${escapeHtml(e.actor)}]</strong> \${escapeHtml(e.action)}</span>
             <span>\${new Date(e.timestamp).toLocaleTimeString()}</span>
           </div>
-          <div>\${e.details}</div>
-          <div class="audit-hash">SHA256: \${e.currentHash.substring(0, 32)}...</div>
+          <div>\${escapeHtml(e.details)}</div>
+          <div class="audit-hash">SHA256: \${escapeHtml(e.currentHash.substring(0, 32))}...</div>
         </div>
       \`).join('');
     }
