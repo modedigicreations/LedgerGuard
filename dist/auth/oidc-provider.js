@@ -1,4 +1,4 @@
-import Provider from 'oidc-provider';
+import Provider, { errors } from 'oidc-provider';
 import { generateKeyPair, exportJWK } from 'jose';
 import { randomUUID } from 'crypto';
 import { pool } from '../db/pool.js';
@@ -41,6 +41,32 @@ export async function createOidcProvider(issuer) {
             // oauth_dcr auth type expects: it registers itself the first
             // time someone connects, with no setup on our side.
             registration: { enabled: true, initialAccessToken: false },
+            // Required — not optional — for an MCP client. Claude/ChatGPT's
+            // MCP client sends a `resource` parameter on every /auth and
+            // /token request per RFC 8707 (the MCP spec mandates this so the
+            // access token is scoped to one specific server). Without this
+            // feature enabled, oidc-provider rejects ANY request carrying an
+            // unrecognized `resource` with `invalid_target` — discovered by
+            // testing a real Claude.ai connector attempt, which failed
+            // instantly before ever reaching our login page because of
+            // exactly this.
+            resourceIndicators: {
+                enabled: true,
+                getResourceServerInfo(_ctx, resourceIndicator) {
+                    if (resourceIndicator === `${issuer}/mcp`) {
+                        return {
+                            scope: 'openid email offline_access',
+                            // Keep oidc-provider's default opaque access tokens
+                            // (see the comment below on why) — resource
+                            // indicators and JWT-formatted tokens are
+                            // independent features; enabling the former
+                            // doesn't require the latter.
+                            accessTokenFormat: 'opaque',
+                        };
+                    }
+                    throw new errors.InvalidTarget(`resource indicator "${resourceIndicator}" is not valid for this server — only ${issuer}/mcp is`);
+                },
+            },
         },
         claims: {
             openid: ['sub'],
