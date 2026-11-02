@@ -31,17 +31,21 @@ export class ReconciliationEngine {
     const actor = options.actor || 'SYSTEM';
     const range = periodToDateRange(period);
 
-    const [chargebeeResult, stripeTxResult, stripePayoutResult, plaidResult, qboResult, paystackTxResult] = await Promise.all([
+    const [chargebeeResult, stripeTxResult, stripePayoutResult, plaidResult, qboResult, paystackTxResult, paddleTxResult] = await Promise.all([
       this.dataSource.getChargebeeInvoices(range),
       this.dataSource.getGatewayTransactions('STRIPE', range),
       this.dataSource.getGatewayPayouts('STRIPE', range),
       this.dataSource.getPlaidTransactions(range),
       this.dataSource.getQBOJournalEntries(range),
-      // Fetched for an honest providerStatus entry only — PayStack isn't
-      // folded into this report's USD-denominated summary math yet (see
-      // VarianceReport.currency's comment), same as Plaid/QuickBooks
+      // Fetched for an honest providerStatus entry only — PayStack/Paddle
+      // aren't folded into this report's USD-denominated summary math yet
+      // (see VarianceReport.currency's comment), same as Plaid/QuickBooks
       // already being fetched here without feeding the dollar totals.
-      this.dataSource.getGatewayTransactions('PAYSTACK', range)
+      // Transactions only, never payouts — Paddle's getPayouts() throws
+      // by design (see its own comment), since Paddle has no synchronous
+      // payout list endpoint to call here.
+      this.dataSource.getGatewayTransactions('PAYSTACK', range),
+      this.dataSource.getGatewayTransactions('PADDLE', range)
     ]);
 
     const providerStatus: Record<ProviderName, ProviderStatus> = {
@@ -53,7 +57,8 @@ export class ReconciliationEngine {
           : 'NOT_CONFIGURED',
       PLAID: plaidResult.status,
       QUICKBOOKS: qboResult.status,
-      PAYSTACK: paystackTxResult.status
+      PAYSTACK: paystackTxResult.status,
+      PADDLE: paddleTxResult.status
     };
 
     // 1. Recognized Revenue from Billing (Chargebee). null, not $0, when

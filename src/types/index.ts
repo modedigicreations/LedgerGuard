@@ -1,10 +1,18 @@
-// NGN/GHS/ZAR/KES added for PayStack, whose primary markets trade in
-// these rather than USD/EUR/GBP — tagging a Naira charge as USD would be
-// a silent misrepresentation, exactly what this project is built to
-// avoid. Mixed-currency reconciliation math (converting a PayStack NGN
+// A plain ISO 4217 code (e.g. "USD", "NGN", "AUD"), not a closed
+// enum — Paddle alone supports 30+ currencies, and more gateways with
+// more markets (Square, PayPal, Braintree) are still to come. An earlier
+// version of this type enumerated just the currencies each gateway
+// happened to need as it was added (USD/EUR/GBP, then NGN/GHS/ZAR/KES
+// for PayStack); that doesn't scale, and worse, every mapping site cast
+// the gateway's raw currency string into that union with `as Currency`,
+// which gave zero actual runtime safety — any code not in the union
+// would still have been silently mistyped rather than caught. Widening
+// to `string` is the honest fix: nothing here was ever really validated
+// against a closed set, so nothing is lost by saying so in the type.
+// Mixed-currency reconciliation math (converting a PayStack NGN
 // transaction into the same report as a Stripe USD one) is explicitly
 // out of scope here — see VarianceReport.currency's own comment.
-export type Currency = 'USD' | 'EUR' | 'GBP' | 'NGN' | 'GHS' | 'ZAR' | 'KES';
+export type Currency = string;
 
 // Provider-agnostic shape every raw-processor payment gateway (Stripe,
 // PayStack, Square, Braintree, ...) reports through — a single charge or
@@ -116,7 +124,7 @@ export interface Anomaly {
   timestamp: string;
 }
 
-export type ProviderName = 'STRIPE' | 'CHARGEBEE' | 'PLAID' | 'QUICKBOOKS' | 'PAYSTACK';
+export type ProviderName = 'STRIPE' | 'CHARGEBEE' | 'PLAID' | 'QUICKBOOKS' | 'PAYSTACK' | 'PADDLE';
 export type ProviderStatus = 'CONNECTED' | 'NOT_CONFIGURED' | 'ERROR';
 
 export interface ProviderResult<T> {

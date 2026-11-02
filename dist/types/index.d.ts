@@ -1,4 +1,4 @@
-export type Currency = 'USD' | 'EUR' | 'GBP' | 'NGN' | 'GHS' | 'ZAR' | 'KES';
+export type Currency = string;
 export interface GatewayTransaction {
     id: string;
     created: string;
@@ -89,7 +89,7 @@ export interface Anomaly {
     suggestedAction: string;
     timestamp: string;
 }
-export type ProviderName = 'STRIPE' | 'CHARGEBEE' | 'PLAID' | 'QUICKBOOKS' | 'PAYSTACK';
+export type ProviderName = 'STRIPE' | 'CHARGEBEE' | 'PLAID' | 'QUICKBOOKS' | 'PAYSTACK' | 'PADDLE';
 export type ProviderStatus = 'CONNECTED' | 'NOT_CONFIGURED' | 'ERROR';
 export interface ProviderResult<T> {
     status: ProviderStatus;

@@ -276,7 +276,7 @@ export async function buildRestServer(): Promise<FastifyInstance> {
   // PayStack) — an OAuth-Connect gateway (Square, PayPal) will need its
   // own authorize-redirect route instead of this paste-a-key form, added
   // when that gateway is built.
-  const API_KEY_PROVIDERS: ConnectedProvider[] = ['STRIPE', 'CHARGEBEE', 'PAYSTACK'];
+  const API_KEY_PROVIDERS: ConnectedProvider[] = ['STRIPE', 'CHARGEBEE', 'PAYSTACK', 'PADDLE'];
 
   app.register(async (connectScope) => {
     connectScope.addContentTypeParser('application/x-www-form-urlencoded', (_req, _payload, done) => done(null));
