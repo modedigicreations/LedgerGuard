@@ -1,4 +1,4 @@
-import { StripeTransaction, StripePayout, ChargebeeInvoice, PlaidBankTransaction, ERPJournalEntry } from '../types/index.js';
+import { GatewayTransaction, GatewayPayout, ChargebeeInvoice, PlaidBankTransaction, ERPJournalEntry } from '../types/index.js';
 
 export const MOCK_CHARGEBEE_INVOICES: ChargebeeInvoice[] = [
   {
@@ -94,7 +94,7 @@ export const MOCK_CHARGEBEE_INVOICES: ChargebeeInvoice[] = [
   }
 ];
 
-export const MOCK_STRIPE_TRANSACTIONS: StripeTransaction[] = [
+export const MOCK_STRIPE_TRANSACTIONS: GatewayTransaction[] = [
   {
     id: 'ch_stripe_sep_001',
     created: '2026-09-02T10:15:00Z',
@@ -223,7 +223,7 @@ export const MOCK_STRIPE_TRANSACTIONS: StripeTransaction[] = [
   }
 ];
 
-export const MOCK_STRIPE_PAYOUTS: StripePayout[] = [
+export const MOCK_STRIPE_PAYOUTS: GatewayPayout[] = [
   {
     id: 'po_stripe_sep_batch_01',
     created: '2026-09-06T00:00:00Z',

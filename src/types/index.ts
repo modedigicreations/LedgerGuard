@@ -1,6 +1,11 @@
 export type Currency = 'USD' | 'EUR' | 'GBP';
 
-export interface StripeTransaction {
+// Provider-agnostic shape every raw-processor payment gateway (Stripe,
+// PayStack, Square, Braintree, ...) reports through — a single charge or
+// refund with its gross/fee/net split. Already generic in its field
+// names; the PaymentGatewayAdapter registry (src/datasources/gateways/)
+// is what maps a specific provider's own API response onto this shape.
+export interface GatewayTransaction {
   id: string;
   created: string; // ISO date
   amountGross: number; // in dollars (e.g. 500.00)
@@ -15,7 +20,7 @@ export interface StripeTransaction {
   description: string;
 }
 
-export interface StripePayout {
+export interface GatewayPayout {
   id: string;
   created: string;
   arrivalDate: string;
@@ -117,6 +122,18 @@ export interface ProviderResult<T> {
 export interface DateRange {
   start: Date;
   end: Date;
+}
+
+// What every "raw processor" payment gateway's adapter implements
+// (src/datasources/gateways/*.ts), dispatched through the registry in
+// src/datasources/gateways/registry.ts. Only STRIPE has an adapter so
+// far (Phase C proves the pattern with the one gateway already built);
+// PayStack/Paddle/Braintree/Square/PayPal each get their own adapter
+// file as they're built, with no change needed here or in
+// LiveDataSource/MockDataSource beyond adding their registry entry.
+export interface PaymentGatewayAdapter {
+  getTransactions(apiKey: string, range: DateRange): Promise<GatewayTransaction[]>;
+  getPayouts(apiKey: string, range: DateRange): Promise<GatewayPayout[]>;
 }
 
 export interface VarianceReport {

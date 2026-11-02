@@ -1,10 +1,11 @@
 import {
-	StripeTransaction,
-	StripePayout,
+	GatewayTransaction,
+	GatewayPayout,
 	ChargebeeInvoice,
 	PlaidBankTransaction,
 	ERPJournalEntry,
 	ProviderResult,
+	ProviderName,
 	DateRange,
 } from '../types/index.js';
 
@@ -13,9 +14,17 @@ import {
 // and local dev, never in production) and LiveDataSource (real provider
 // APIs, reporting NOT_CONFIGURED per provider rather than ever falling
 // back to fabricated numbers).
+//
+// getGatewayTransactions/getGatewayPayouts cover every "raw processor"
+// gateway (Stripe today; PayStack/Paddle/Braintree/Square/PayPal as each
+// is built) through one provider-dispatched pair of methods instead of a
+// separate getXTransactions/getXPayouts per gateway. Chargebee stays its
+// own dedicated method — it's billing/invoicing, not a raw payment
+// processor, and was explicitly kept as-is rather than folded into this
+// registry.
 export interface FinancialDataSource {
-	getStripeTransactions(range: DateRange): Promise<ProviderResult<StripeTransaction>>;
-	getStripePayouts(range: DateRange): Promise<ProviderResult<StripePayout>>;
+	getGatewayTransactions(provider: ProviderName, range: DateRange): Promise<ProviderResult<GatewayTransaction>>;
+	getGatewayPayouts(provider: ProviderName, range: DateRange): Promise<ProviderResult<GatewayPayout>>;
 	getChargebeeInvoices(range: DateRange): Promise<ProviderResult<ChargebeeInvoice>>;
 	getPlaidTransactions(range: DateRange): Promise<ProviderResult<PlaidBankTransaction>>;
 	getQBOJournalEntries(range: DateRange): Promise<ProviderResult<ERPJournalEntry>>;

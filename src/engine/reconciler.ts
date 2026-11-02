@@ -33,8 +33,8 @@ export class ReconciliationEngine {
 
     const [chargebeeResult, stripeTxResult, stripePayoutResult, plaidResult, qboResult] = await Promise.all([
       this.dataSource.getChargebeeInvoices(range),
-      this.dataSource.getStripeTransactions(range),
-      this.dataSource.getStripePayouts(range),
+      this.dataSource.getGatewayTransactions('STRIPE', range),
+      this.dataSource.getGatewayPayouts('STRIPE', range),
       this.dataSource.getPlaidTransactions(range),
       this.dataSource.getQBOJournalEntries(range)
     ]);

@@ -1,5 +1,5 @@
 export type Currency = 'USD' | 'EUR' | 'GBP';
-export interface StripeTransaction {
+export interface GatewayTransaction {
     id: string;
     created: string;
     amountGross: number;
@@ -13,7 +13,7 @@ export interface StripeTransaction {
     payoutId?: string;
     description: string;
 }
-export interface StripePayout {
+export interface GatewayPayout {
     id: string;
     created: string;
     arrivalDate: string;
@@ -99,6 +99,10 @@ export interface ProviderResult<T> {
 export interface DateRange {
     start: Date;
     end: Date;
+}
+export interface PaymentGatewayAdapter {
+    getTransactions(apiKey: string, range: DateRange): Promise<GatewayTransaction[]>;
+    getPayouts(apiKey: string, range: DateRange): Promise<GatewayPayout[]>;
 }
 export interface VarianceReport {
     reportId: string;

@@ -10,10 +10,17 @@ function connected(data) {
 // by tests/test-reconciler.ts and local dev — never selected in
 // production (see LEDGERGUARD_DATA_MODE in reconciler.ts).
 export class MockDataSource {
-    async getStripeTransactions(range) {
+    // Only STRIPE has fixed mock data — any other provider honestly
+    // reports NOT_CONFIGURED, same contract LiveDataSource has for a
+    // provider the user never connected.
+    async getGatewayTransactions(provider, range) {
+        if (provider !== 'STRIPE')
+            return { status: 'NOT_CONFIGURED', data: [] };
         return connected(MOCK_STRIPE_TRANSACTIONS.filter((tx) => inRange(tx.created, range)));
     }
-    async getStripePayouts(range) {
+    async getGatewayPayouts(provider, range) {
+        if (provider !== 'STRIPE')
+            return { status: 'NOT_CONFIGURED', data: [] };
         return connected(MOCK_STRIPE_PAYOUTS.filter((p) => inRange(p.created, range)));
     }
     async getChargebeeInvoices(range) {

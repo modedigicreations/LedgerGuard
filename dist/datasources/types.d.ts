@@ -1,7 +1,7 @@
-import { StripeTransaction, StripePayout, ChargebeeInvoice, PlaidBankTransaction, ERPJournalEntry, ProviderResult, DateRange } from '../types/index.js';
+import { GatewayTransaction, GatewayPayout, ChargebeeInvoice, PlaidBankTransaction, ERPJournalEntry, ProviderResult, ProviderName, DateRange } from '../types/index.js';
 export interface FinancialDataSource {
-    getStripeTransactions(range: DateRange): Promise<ProviderResult<StripeTransaction>>;
-    getStripePayouts(range: DateRange): Promise<ProviderResult<StripePayout>>;
+    getGatewayTransactions(provider: ProviderName, range: DateRange): Promise<ProviderResult<GatewayTransaction>>;
+    getGatewayPayouts(provider: ProviderName, range: DateRange): Promise<ProviderResult<GatewayPayout>>;
     getChargebeeInvoices(range: DateRange): Promise<ProviderResult<ChargebeeInvoice>>;
     getPlaidTransactions(range: DateRange): Promise<ProviderResult<PlaidBankTransaction>>;
     getQBOJournalEntries(range: DateRange): Promise<ProviderResult<ERPJournalEntry>>;

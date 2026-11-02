@@ -1,12 +1,13 @@
 import { FinancialDataSource } from './types.js';
 import {
 	DateRange,
-	StripeTransaction,
-	StripePayout,
+	GatewayTransaction,
+	GatewayPayout,
 	ChargebeeInvoice,
 	PlaidBankTransaction,
 	ERPJournalEntry,
 	ProviderResult,
+	ProviderName,
 } from '../types/index.js';
 import {
 	MOCK_CHARGEBEE_INVOICES,
@@ -29,11 +30,16 @@ function connected<T>(data: T[]): ProviderResult<T> {
 // by tests/test-reconciler.ts and local dev — never selected in
 // production (see LEDGERGUARD_DATA_MODE in reconciler.ts).
 export class MockDataSource implements FinancialDataSource {
-	async getStripeTransactions(range: DateRange): Promise<ProviderResult<StripeTransaction>> {
+	// Only STRIPE has fixed mock data — any other provider honestly
+	// reports NOT_CONFIGURED, same contract LiveDataSource has for a
+	// provider the user never connected.
+	async getGatewayTransactions(provider: ProviderName, range: DateRange): Promise<ProviderResult<GatewayTransaction>> {
+		if (provider !== 'STRIPE') return { status: 'NOT_CONFIGURED', data: [] };
 		return connected(MOCK_STRIPE_TRANSACTIONS.filter((tx) => inRange(tx.created, range)));
 	}
 
-	async getStripePayouts(range: DateRange): Promise<ProviderResult<StripePayout>> {
+	async getGatewayPayouts(provider: ProviderName, range: DateRange): Promise<ProviderResult<GatewayPayout>> {
+		if (provider !== 'STRIPE') return { status: 'NOT_CONFIGURED', data: [] };
 		return connected(MOCK_STRIPE_PAYOUTS.filter((p) => inRange(p.created, range)));
 	}
 
