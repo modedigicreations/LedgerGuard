@@ -53,16 +53,37 @@ function getResend(): Resend {
 // and some senders' own click-tracking are built to visit automatically
 // — which was burning the single-use credential before a real person
 // ever saw it. A typed code has no URL for anything automated to act on.
+// OpenAI's plugin review requires a reviewer test account that signs in
+// immediately, with no email/SMS code or magic link to wait on — but
+// LedgerGuard's entire sign-in IS an email code, by design (no passwords
+// at all). The resolution: one specific, pre-documented email address
+// gets a FIXED code instead of a random emailed one. The reviewer still
+// sees and uses the exact same sign-in UI a real user does (type email,
+// type code, consent) — the only difference is the code is never
+// actually sent anywhere out-of-band; it's handed to OpenAI's review
+// team directly as part of the reviewer-credentials submission. Nothing
+// about this weakens real users' codes: they're still random, emailed,
+// and single-use exactly as before.
+function reviewerBypass(email: string): string | null {
+	const reviewerEmail = process.env.LEDGERGUARD_REVIEWER_EMAIL;
+	const reviewerCode = process.env.LEDGERGUARD_REVIEWER_CODE;
+	if (!reviewerEmail || !reviewerCode) return null;
+	if (email.trim().toLowerCase() !== reviewerEmail.trim().toLowerCase()) return null;
+	return reviewerCode;
+}
+
 export async function sendMagicLink(options: SendMagicLinkOptions): Promise<SendMagicLinkResult> {
 	const userId = await findOrCreateUser(options.email);
 	const challengeId = options.interactionUid ?? randomBytes(16).toString('base64url');
-	const code = generateCode();
+	const bypassCode = reviewerBypass(options.email);
+	const code = bypassCode ?? generateCode();
 	const expiresAt = new Date(Date.now() + CODE_TTL_MS);
 
 	// A fresh code invalidates any still-pending one for the same
 	// challenge, so only ever the latest code is a valid guess target —
 	// otherwise hitting "resend" a few times would leave several codes
-	// simultaneously live for the same login.
+	// simultaneously live for the same login. Same bookkeeping for the
+	// reviewer bypass code — only its VALUE is fixed, not its lifecycle.
 	await pool.query(
 		`UPDATE magic_link_tokens SET consumed_at = now() WHERE interaction_uid = $1 AND consumed_at IS NULL`,
 		[challengeId],
@@ -72,6 +93,11 @@ export async function sendMagicLink(options: SendMagicLinkOptions): Promise<Send
 		 VALUES ($1, $2, $3, $4)`,
 		[userId, hashCode(code), challengeId, expiresAt],
 	);
+
+	if (bypassCode) {
+		console.log(`[magic-link] reviewer bypass used for ${options.email}`);
+		return { userId, challengeId };
+	}
 
 	if (!process.env.RESEND_API_KEY) {
 		// No email provider configured — print the code instead of failing

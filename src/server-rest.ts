@@ -290,6 +290,21 @@ export async function buildRestServer(): Promise<FastifyInstance> {
     });
   });
 
+  // OpenAI plugin-directory domain verification: proves we control this
+  // hostname before they'll connect to it as an MCP server. The exact
+  // token value comes from the portal's "Connect MCP server" step, set
+  // here as a plain env var — this endpoint is never used for anything
+  // beyond that one-time proof, and returns 404 until it's configured
+  // (nothing to verify yet, so nothing to serve).
+  app.get('/.well-known/openai-apps-challenge', async (req, reply) => {
+    const token = process.env.LEDGERGUARD_OPENAI_CHALLENGE_TOKEN;
+    if (!token) {
+      reply.code(404).send();
+      return;
+    }
+    reply.type('text/plain').send(token);
+  });
+
   // ---------------------------------------------------------------------
   // Dashboard + REST API, now behind the cookie login above.
   // ---------------------------------------------------------------------
