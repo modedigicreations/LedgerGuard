@@ -44,6 +44,11 @@ export function createLedgerGuardMCPServer(userId) {
                                 default: true
                             }
                         }
+                    },
+                    annotations: {
+                        readOnlyHint: true,
+                        destructiveHint: false,
+                        openWorldHint: true
                     }
                 },
                 {
@@ -63,6 +68,11 @@ export function createLedgerGuardMCPServer(userId) {
                                 enum: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
                             }
                         }
+                    },
+                    annotations: {
+                        readOnlyHint: true,
+                        destructiveHint: false,
+                        openWorldHint: true
                     }
                 },
                 {
@@ -78,6 +88,11 @@ export function createLedgerGuardMCPServer(userId) {
                             }
                         },
                         required: ['provider']
+                    },
+                    annotations: {
+                        readOnlyHint: true,
+                        destructiveHint: false,
+                        openWorldHint: false
                     }
                 },
                 {
@@ -110,6 +125,11 @@ export function createLedgerGuardMCPServer(userId) {
                                 }
                             }
                         }
+                    },
+                    annotations: {
+                        readOnlyHint: false,
+                        destructiveHint: false,
+                        openWorldHint: false
                     }
                 },
                 {
@@ -129,6 +149,11 @@ export function createLedgerGuardMCPServer(userId) {
                             }
                         },
                         required: ['adjustmentId']
+                    },
+                    annotations: {
+                        readOnlyHint: false,
+                        destructiveHint: false,
+                        openWorldHint: false
                     }
                 },
                 {
@@ -148,6 +173,11 @@ export function createLedgerGuardMCPServer(userId) {
                             }
                         },
                         required: ['adjustmentId']
+                    },
+                    annotations: {
+                        readOnlyHint: false,
+                        destructiveHint: false,
+                        openWorldHint: false
                     }
                 },
                 {
@@ -162,6 +192,11 @@ export function createLedgerGuardMCPServer(userId) {
                                 default: true
                             }
                         }
+                    },
+                    annotations: {
+                        readOnlyHint: true,
+                        destructiveHint: false,
+                        openWorldHint: false
                     }
                 },
                 {
@@ -175,6 +210,11 @@ export function createLedgerGuardMCPServer(userId) {
                                 default: '2026-09'
                             }
                         }
+                    },
+                    annotations: {
+                        readOnlyHint: false,
+                        destructiveHint: false,
+                        openWorldHint: true
                     }
                 }
             ]
