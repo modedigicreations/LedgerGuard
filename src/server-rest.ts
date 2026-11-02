@@ -32,6 +32,23 @@ export async function buildRestServer(): Promise<FastifyInstance> {
     trustProxy: true
   });
 
+  // TEMP diagnostic (remove once the live Claude connector failure is
+  // understood): logger:false means Railway's logs have zero visibility
+  // into incoming requests — this is the only way to see what Claude's
+  // backend actually sends (and how far it gets) during a real connector
+  // attempt, since every attempt from this session's own curl calls
+  // succeeds but the real one fails near-instantly with no visible
+  // navigation.
+  app.addHook('onRequest', async (req) => {
+    console.log(`[req] ${req.method} ${req.url} ua="${req.headers['user-agent'] || ''}" origin="${req.headers['origin'] || ''}"`);
+  });
+  app.addHook('onResponse', async (req, reply) => {
+    console.log(`[res] ${req.method} ${req.url} -> ${reply.statusCode}`);
+  });
+  app.addHook('onError', async (req, _reply, err) => {
+    console.error(`[err] ${req.method} ${req.url} ->`, err.message);
+  });
+
   const issuer = process.env.LEDGERGUARD_OIDC_ISSUER || 'http://localhost:3333';
   const provider = await createOidcProvider(issuer);
 
