@@ -269,9 +269,15 @@ export async function buildRestServer(): Promise<FastifyInstance> {
   });
 
   // Connect-a-gateway dashboard pages — session-authenticated, the only
-  // place a user ever types their own Stripe/Chargebee API key. Never
+  // place a user ever types their own API key for a gateway. Never
   // reachable from an MCP tool argument (see connect_payment_gateway in
-  // server-mcp.ts), only from a link that tool hands back.
+  // server-mcp.ts), only from a link that tool hands back. Every
+  // provider here is the plain-API-key kind (Stripe, Chargebee,
+  // PayStack) — an OAuth-Connect gateway (Square, PayPal) will need its
+  // own authorize-redirect route instead of this paste-a-key form, added
+  // when that gateway is built.
+  const API_KEY_PROVIDERS: ConnectedProvider[] = ['STRIPE', 'CHARGEBEE', 'PAYSTACK'];
+
   app.register(async (connectScope) => {
     connectScope.addContentTypeParser('application/x-www-form-urlencoded', (_req, _payload, done) => done(null));
 
@@ -279,7 +285,7 @@ export async function buildRestServer(): Promise<FastifyInstance> {
       const userId = await requireDashboardSession(req, reply);
       if (!userId) return;
       const provider = (req.params as { provider: string }).provider.toUpperCase();
-      if (provider !== 'STRIPE' && provider !== 'CHARGEBEE') {
+      if (!API_KEY_PROVIDERS.includes(provider as ConnectedProvider)) {
         reply.type('text/html').send(errorPage(`Unknown or not-yet-supported provider: ${provider}`));
         return;
       }
@@ -292,7 +298,7 @@ export async function buildRestServer(): Promise<FastifyInstance> {
       const userId = await requireDashboardSession(req, reply);
       if (!userId) return;
       const provider = (req.params as { provider: string }).provider.toUpperCase();
-      if (provider !== 'STRIPE' && provider !== 'CHARGEBEE') {
+      if (!API_KEY_PROVIDERS.includes(provider as ConnectedProvider)) {
         reply.type('text/html').send(errorPage(`Unknown or not-yet-supported provider: ${provider}`));
         return;
       }

@@ -1,4 +1,10 @@
-export type Currency = 'USD' | 'EUR' | 'GBP';
+// NGN/GHS/ZAR/KES added for PayStack, whose primary markets trade in
+// these rather than USD/EUR/GBP — tagging a Naira charge as USD would be
+// a silent misrepresentation, exactly what this project is built to
+// avoid. Mixed-currency reconciliation math (converting a PayStack NGN
+// transaction into the same report as a Stripe USD one) is explicitly
+// out of scope here — see VarianceReport.currency's own comment.
+export type Currency = 'USD' | 'EUR' | 'GBP' | 'NGN' | 'GHS' | 'ZAR' | 'KES';
 
 // Provider-agnostic shape every raw-processor payment gateway (Stripe,
 // PayStack, Square, Braintree, ...) reports through — a single charge or
@@ -110,7 +116,7 @@ export interface Anomaly {
   timestamp: string;
 }
 
-export type ProviderName = 'STRIPE' | 'CHARGEBEE' | 'PLAID' | 'QUICKBOOKS';
+export type ProviderName = 'STRIPE' | 'CHARGEBEE' | 'PLAID' | 'QUICKBOOKS' | 'PAYSTACK';
 export type ProviderStatus = 'CONNECTED' | 'NOT_CONFIGURED' | 'ERROR';
 
 export interface ProviderResult<T> {
@@ -140,6 +146,14 @@ export interface VarianceReport {
   reportId: string;
   period: string; // e.g. "2026-09" or "2026-09-01 to 2026-09-30"
   generatedAt: string;
+  // The summary math below (recognizedRevenue, stripeGrossVolume, etc.)
+  // is still Stripe+Chargebee-specific and assumes this one currency —
+  // reconciling a NGN PayStack balance against a USD Chargebee invoice
+  // in the same totals would need real FX conversion, not implemented
+  // here. A connected PayStack account's own transactions/payouts are
+  // still honestly reported in their own currency wherever they're read
+  // directly (GatewayTransaction/GatewayPayout.currency), just not
+  // folded into this report's single-currency summary yet.
   currency: Currency;
   materialityThreshold: number; // e.g. $250.00
   // Per-provider connection state for this report. A metric fed by a

@@ -20,6 +20,7 @@
     "start:cron": "node dist/bin/run-cron.js",
     "generate:manifests": "tsx src/scripts/generate-manifests.ts",
     "test": "tsx tests/test-reconciler.ts",
+    "test:paystack": "tsx tests/test-paystack-mapping.ts",
     "test:auth": "tsx tests/test-auth.ts"
   },
   "keywords": [

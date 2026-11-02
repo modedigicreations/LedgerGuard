@@ -31,12 +31,17 @@ export class ReconciliationEngine {
     const actor = options.actor || 'SYSTEM';
     const range = periodToDateRange(period);
 
-    const [chargebeeResult, stripeTxResult, stripePayoutResult, plaidResult, qboResult] = await Promise.all([
+    const [chargebeeResult, stripeTxResult, stripePayoutResult, plaidResult, qboResult, paystackTxResult] = await Promise.all([
       this.dataSource.getChargebeeInvoices(range),
       this.dataSource.getGatewayTransactions('STRIPE', range),
       this.dataSource.getGatewayPayouts('STRIPE', range),
       this.dataSource.getPlaidTransactions(range),
-      this.dataSource.getQBOJournalEntries(range)
+      this.dataSource.getQBOJournalEntries(range),
+      // Fetched for an honest providerStatus entry only — PayStack isn't
+      // folded into this report's USD-denominated summary math yet (see
+      // VarianceReport.currency's comment), same as Plaid/QuickBooks
+      // already being fetched here without feeding the dollar totals.
+      this.dataSource.getGatewayTransactions('PAYSTACK', range)
     ]);
 
     const providerStatus: Record<ProviderName, ProviderStatus> = {
@@ -47,7 +52,8 @@ export class ReconciliationEngine {
           ? 'ERROR'
           : 'NOT_CONFIGURED',
       PLAID: plaidResult.status,
-      QUICKBOOKS: qboResult.status
+      QUICKBOOKS: qboResult.status,
+      PAYSTACK: paystackTxResult.status
     };
 
     // 1. Recognized Revenue from Billing (Chargebee). null, not $0, when
