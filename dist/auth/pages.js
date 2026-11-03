@@ -17,10 +17,11 @@ function shell(title, body) {
 <body><div class="card">${body}</div></body>
 </html>`;
 }
-export function emailFormPage(actionUrl) {
+export function emailFormPage(actionUrl, next) {
     return shell('Sign in', `
 		<h1>🛡️ Sign in to LedgerGuard</h1>
 		<form method="POST" action="${actionUrl}">
+			${next ? `<input type="hidden" name="next" value="${next.replace(/"/g, '&quot;')}">` : ''}
 			<input type="email" name="email" placeholder="you@company.com" required autofocus>
 			<button type="submit">Send sign-in code</button>
 		</form>
@@ -36,12 +37,13 @@ export function emailFormPage(actionUrl) {
 // challengeId travels as a hidden field when the action URL doesn't
 // already encode it (the OAuth interaction flow's /interaction/:uid/code
 // doesn't need one, since :uid already scopes it).
-export function codeEntryPage(email, actionUrl, challengeId) {
+export function codeEntryPage(email, actionUrl, challengeId, next) {
     return shell('Enter your code', `
 		<h1>🔢 Enter your code</h1>
 		<p>We emailed a 6-digit code to <strong>${email.replace(/</g, '&lt;')}</strong>. It expires in 10 minutes and works once.</p>
 		<form method="POST" action="${actionUrl}">
 			${challengeId ? `<input type="hidden" name="challengeId" value="${challengeId.replace(/"/g, '&quot;')}">` : ''}
+			${next ? `<input type="hidden" name="next" value="${next.replace(/"/g, '&quot;')}">` : ''}
 			<input type="text" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="123456" required autofocus style="text-align:center;letter-spacing:4px;font-size:1.3rem;">
 			<button type="submit">Verify</button>
 		</form>

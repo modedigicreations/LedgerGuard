@@ -1,4 +1,51 @@
-export function getDashboardHtml(): string {
+import { ConnectedProvider, ConnectionStatus } from '../auth/connected-accounts.js';
+
+const API_KEY_PROVIDERS: { id: ConnectedProvider; label: string }[] = [
+  { id: 'STRIPE', label: 'Stripe' },
+  { id: 'CHARGEBEE', label: 'Chargebee' },
+  { id: 'PAYSTACK', label: 'PayStack' },
+  { id: 'PADDLE', label: 'Paddle' },
+  { id: 'BRAINTREE', label: 'Braintree' },
+];
+
+function escapeHtmlServer(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function connectionsPanel(connections: ConnectionStatus[]): string {
+  const statusByProvider = new Map(connections.map((c) => [c.provider, c.status]));
+  const cards = API_KEY_PROVIDERS.map(({ id, label }) => {
+    const status = statusByProvider.get(id) || 'NOT_CONFIGURED';
+    const badgeClass = status === 'CONNECTED' ? 'status-ok' : status === 'ERROR' ? 'status-drift' : 'status-neutral';
+    const action = status === 'CONNECTED' ? 'Manage' : 'Connect';
+    return `
+      <div class="connection-card">
+        <div class="connection-card-top">
+          <span class="connection-name">${escapeHtmlServer(label)}</span>
+          <span class="status-badge ${badgeClass}">${escapeHtmlServer(status.replace(/_/g, ' '))}</span>
+        </div>
+        <a class="btn btn-secondary" href="/connect/${id.toLowerCase()}">${action}</a>
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="panel" id="connections-panel" style="margin-bottom: 2rem;">
+      <div class="panel-header">
+        <div>
+          <h2>Connect your accounts</h2>
+          <p style="font-size:0.85rem; color:var(--text-muted)">Each key is stored encrypted and only ever used to read your own data — it's never shown to the AI assistant.</p>
+        </div>
+      </div>
+      <div class="connections-grid">${cards}</div>
+    </div>`;
+}
+
+export function getDashboardHtml(connections: ConnectionStatus[] = []): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -245,6 +292,35 @@ export function getDashboardHtml(): string {
       border: 1px solid rgba(16, 185, 129, 0.35);
       color: #34d399;
     }
+    .status-neutral {
+      background: rgba(148, 163, 184, 0.15);
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      color: #94a3b8;
+    }
+
+    .connections-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+    }
+    .connection-card {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .connection-card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .connection-name {
+      font-weight: 700;
+      font-size: 0.95rem;
+    }
 
     /* Section Layout */
     .grid-2 {
@@ -484,6 +560,8 @@ export function getDashboardHtml(): string {
         <span>Audit Period: <strong>2026-09 (September)</strong></span>
       </div>
     </div>
+
+    ${connectionsPanel(connections)}
 
     <!-- KPI Summary Cards -->
     <div class="kpi-grid" id="kpi-grid">

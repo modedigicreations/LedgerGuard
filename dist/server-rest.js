@@ -79,19 +79,21 @@ export async function buildRestServer() {
     app.register(async (loginScope) => {
         loginScope.addContentTypeParser('application/x-www-form-urlencoded', (_req, _payload, done) => done(null));
         loginScope.get('/login', async (req, reply) => {
-            reply.type('text/html').send(emailFormPage('/login'));
+            const next = safeNextPath(req.query.next);
+            reply.type('text/html').send(emailFormPage('/login', next || undefined));
         });
         loginScope.post('/login', {
             config: { rateLimit: { max: 5, timeWindow: '15 minutes' } }
         }, async (req, reply) => {
             const body = await readFormBody(req);
             const email = body.get('email');
+            const next = safeNextPath(body.get('next'));
             if (!email) {
                 reply.type('text/html').send(errorPage('An email address is required.'));
                 return;
             }
             const { challengeId } = await sendMagicLink({ email, baseUrl: issuer });
-            reply.type('text/html').send(codeEntryPage(email, '/login/code', challengeId));
+            reply.type('text/html').send(codeEntryPage(email, '/login/code', challengeId, next || undefined));
         });
         loginScope.get('/logout', async (req, reply) => {
             await destroyDashboardSession(req.cookies[DASHBOARD_COOKIE_NAME]);
@@ -111,6 +113,7 @@ export async function buildRestServer() {
             const body = await readFormBody(req);
             const challengeId = body.get('challengeId');
             const code = body.get('code');
+            const next = safeNextPath(body.get('next'));
             if (!challengeId || !code) {
                 reply.type('text/html').send(errorPage('Missing sign-in code.'));
                 return;
@@ -128,7 +131,7 @@ export async function buildRestServer() {
                 sameSite: 'lax',
                 expires: session.expiresAt,
             });
-            reply.redirect('/');
+            reply.redirect(next || '/');
         });
     });
     // ---------------------------------------------------------------------
@@ -273,10 +276,24 @@ export async function buildRestServer() {
     // ---------------------------------------------------------------------
     // Dashboard + REST API, now behind the cookie login above.
     // ---------------------------------------------------------------------
+    // Only a same-origin, server-relative path is ever safe to redirect back
+    // to — anything else (a bare "//host" or an absolute URL) could send the
+    // user off LedgerGuard entirely after they type in a sign-in code, which
+    // is exactly the shape of an open-redirect phishing setup.
+    function safeNextPath(value) {
+        if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//'))
+            return null;
+        return value;
+    }
     async function requireDashboardSession(req, reply) {
         const userId = await resolveDashboardSession(req.cookies[DASHBOARD_COOKIE_NAME]);
         if (!userId) {
-            reply.redirect('/login');
+            // Preserve where the user was trying to go (e.g. the one-time
+            // /connect/stripe link an MCP tool handed back) across the sign-in
+            // detour, instead of always dropping them on the dashboard home —
+            // that was losing the one link a first-time user actually needs.
+            const next = encodeURIComponent(req.url);
+            reply.redirect(`/login?next=${next}`);
             return null;
         }
         return userId;
@@ -286,7 +303,8 @@ export async function buildRestServer() {
         const userId = await requireDashboardSession(req, reply);
         if (!userId)
             return;
-        reply.type('text/html').send(getDashboardHtml());
+        const connections = await listConnectionsFor(userId);
+        reply.type('text/html').send(getDashboardHtml(connections));
     });
     // Connect-a-gateway dashboard pages — session-authenticated, the only
     // place a user ever types their own API key for a gateway. Never
