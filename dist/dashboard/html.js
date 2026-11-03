@@ -514,6 +514,10 @@ export function getDashboardHtml(connections = []) {
       font-size: 0.875rem;
       font-weight: 500;
     }
+    #toast.error {
+      border-color: #f87171;
+      background: #3b0d0d;
+    }
   </style>
 </head>
 <body>
@@ -832,7 +836,11 @@ export function getDashboardHtml(connections = []) {
         body: JSON.stringify({ adjustmentId: id, approvedBy: 'Finance Lead (User Approval)' })
       });
       const data = await res.json();
-      showToast('Journal Entry Approved! Ready for ERP Push.');
+      if (!res.ok || data.success === false) {
+        showToast(data.error || 'Could not approve that entry.', true);
+      } else {
+        showToast('Journal Entry Approved! Ready for ERP Push.');
+      }
       await loadAdjustments();
       await loadAuditTrail();
     }
@@ -844,7 +852,11 @@ export function getDashboardHtml(connections = []) {
         body: JSON.stringify({ adjustmentId: id, targetERP: 'QUICKBOOKS' })
       });
       const data = await res.json();
-      showToast('Successfully synchronized with QuickBooks Online!');
+      if (!res.ok || data.success === false) {
+        showToast(data.error || 'Could not sync that entry to QuickBooks.', true);
+      } else {
+        showToast('Successfully synchronized with QuickBooks Online!');
+      }
       await loadData();
       await loadAdjustments();
       await loadAuditTrail();
@@ -858,7 +870,11 @@ export function getDashboardHtml(connections = []) {
         body: JSON.stringify({ anomalyId })
       });
       const data = await res.json();
-      showToast('Adjustment drafted: ' + (data.adjustmentNumber || 'Ready for review'));
+      if (!res.ok || data.error) {
+        showToast(data.error || data.message || 'Could not draft an adjustment for that anomaly.', true);
+      } else {
+        showToast('Adjustment drafted: ' + (data.adjustmentNumber || 'Ready for review'));
+      }
       await loadAdjustments();
       await loadAuditTrail();
     }
@@ -871,13 +887,20 @@ export function getDashboardHtml(connections = []) {
         body: JSON.stringify({ period: '2026-09' })
       });
       const data = await res.json();
-      showToast('Overnight audit complete! Slack alert dispatched to #finance-ops-alerts.');
+      if (!res.ok) {
+        showToast(data.error || data.message || 'The overnight batch failed to run.', true);
+      } else if (data.slackAlertDispatched) {
+        showToast('Overnight audit complete! Slack alert dispatched to #finance-ops-alerts.');
+      } else {
+        showToast('Overnight audit complete — nothing to flag, no alert sent.');
+      }
       await loadData();
     }
 
-    function showToast(msg) {
+    function showToast(msg, isError) {
       const t = document.getElementById('toast');
       t.innerText = msg;
+      t.classList.toggle('error', !!isError);
       t.style.display = 'block';
       setTimeout(() => { t.style.display = 'none'; }, 4000);
     }
